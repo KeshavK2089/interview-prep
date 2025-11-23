@@ -5,18 +5,16 @@ import {
   Cpu, Network, Zap, GraduationCap, Play, Timer, Award, 
   Lightbulb, Brain, Target, Hash, BarChart3, PieChart, Activity,
   ThumbsUp, ThumbsDown, RefreshCw, Building, Globe, Users, TrendingUp,
-  Sliders
+  Sliders, Volume2, StopCircle, Settings
 } from 'lucide-react';
 
 // --- API Helper ---
-// This version is configured for Vercel deployment
-const generateInterviewPrep = async (resume, jobDesc) => {
-  // We call our own local server route '/api/generate'
-  // When deployed on Vercel, this route handles the secret API key
+const generateInterviewPrep = async (resume, jobDesc, numQuestions) => {
+  // Pass numQuestions to our secret server
   const response = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jobDesc })
+    body: JSON.stringify({ resume, jobDesc, numQuestions })
   });
 
   const data = await response.json();
@@ -31,7 +29,6 @@ const generateInterviewPrep = async (resume, jobDesc) => {
 // --- Visualization Components ---
 
 const VibeEqualizer = ({ vibe }) => {
-  // Defaults if data missing
   const data = vibe || { scope: 50, social: 50, structure: 50, techNature: 50 };
 
   const SpectrumRow = ({ labelLeft, labelRight, value, colorClass }) => (
@@ -41,12 +38,10 @@ const VibeEqualizer = ({ vibe }) => {
         <span className={value > 60 ? "text-slate-800" : ""}>{labelRight}</span>
       </div>
       <div className="h-3 bg-slate-100 rounded-full relative overflow-hidden">
-        {/* Fill */}
         <div 
           className={`absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r ${colorClass}`}
           style={{ width: `${value}%` }}
         />
-        {/* Handle */}
         <div 
            className="absolute top-0 h-full w-1 bg-white shadow-md z-10 transition-all duration-1000 ease-out"
            style={{ left: `${value}%`, transform: 'translateX(-50%)' }}
@@ -61,31 +56,10 @@ const VibeEqualizer = ({ vibe }) => {
          <Sliders size={16} className="text-slate-400"/>
          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Role DNA Profile</span>
       </div>
-      
-      <SpectrumRow 
-        labelLeft="Execution" 
-        labelRight="Strategy" 
-        value={data.scope} 
-        colorClass="from-emerald-300 to-emerald-500"
-      />
-      <SpectrumRow 
-        labelLeft="Independent" 
-        labelRight="Collaborative" 
-        value={data.social} 
-        colorClass="from-blue-300 to-blue-500"
-      />
-      <SpectrumRow 
-        labelLeft="Structured" 
-        labelRight="Ambiguous" 
-        value={data.structure} 
-        colorClass="from-purple-300 to-purple-500"
-      />
-      <SpectrumRow 
-        labelLeft="Generalist" 
-        labelRight="Specialist" 
-        value={data.techNature} 
-        colorClass="from-pink-300 to-pink-500"
-      />
+      <SpectrumRow labelLeft="Execution" labelRight="Strategy" value={data.scope} colorClass="from-emerald-300 to-emerald-500"/>
+      <SpectrumRow labelLeft="Independent" labelRight="Collaborative" value={data.social} colorClass="from-blue-300 to-blue-500"/>
+      <SpectrumRow labelLeft="Structured" labelRight="Ambiguous" value={data.structure} colorClass="from-purple-300 to-purple-500"/>
+      <SpectrumRow labelLeft="Generalist" labelRight="Specialist" value={data.techNature} colorClass="from-pink-300 to-pink-500"/>
     </div>
   );
 };
@@ -95,7 +69,6 @@ const RadarChart = ({ data }) => {
   const center = size / 2;
   const radius = (size / 2) - 40;
   const levels = 4;
-
   const angleStep = (Math.PI * 2) / data.length;
 
   const getCoordinates = (value, index) => {
@@ -360,7 +333,7 @@ const PracticeSession = ({ questions, onClose }) => {
   const [isActive, setIsActive] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [completed, setCompleted] = useState(new Set());
-  const [feedback, setFeedback] = useState({});
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   useEffect(() => {
     let interval = null;
@@ -374,10 +347,30 @@ const PracticeSession = ({ questions, onClose }) => {
     return () => clearInterval(interval);
   }, [isActive, timer]);
 
+  // Reset speaker state when question changes
+  useEffect(() => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  }, [currentQIndex]);
+
   const formatTime = (time) => {
     const minutes = Math.floor(time / 60);
     const seconds = time % 60;
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const toggleSpeech = (text) => {
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    } else {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.9; // Slightly slower for clarity
+      utterance.pitch = 1;
+      utterance.onend = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+      setIsSpeaking(true);
+    }
   };
 
   const markComplete = (score) => {
@@ -385,11 +378,6 @@ const PracticeSession = ({ questions, onClose }) => {
     newCompleted.add(currentQIndex);
     setCompleted(newCompleted);
     
-    setFeedback(prev => ({
-      ...prev,
-      [currentQIndex]: score
-    }));
-
     if (currentQIndex < questions.length - 1) {
       setTimeout(() => {
         setCurrentQIndex(prev => prev + 1);
@@ -437,8 +425,15 @@ const PracticeSession = ({ questions, onClose }) => {
             </span>
           </div>
 
-          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-12 leading-tight">
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 leading-tight relative group">
             {question.question}
+            <button 
+              onClick={() => toggleSpeech(question.question)}
+              className="inline-flex items-center justify-center ml-3 p-2 rounded-full bg-sky-50 text-sky-600 hover:bg-sky-100 transition-colors align-middle"
+              title="Read Question Aloud"
+            >
+              {isSpeaking ? <StopCircle size={24} className="animate-pulse" /> : <Volume2 size={24} />}
+            </button>
           </h2>
 
           <div className="flex items-center gap-4 mb-12">
@@ -664,6 +659,7 @@ const SafetyView = () => (
 const ProductView = () => {
   const [resume, setResume] = useState('');
   const [jobDesc, setJobDesc] = useState('');
+  const [numQuestions, setNumQuestions] = useState(7);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -676,7 +672,7 @@ const ProductView = () => {
     setError(null);
     setResult(null);
     try {
-      const data = await generateInterviewPrep(resume, jobDesc);
+      const data = await generateInterviewPrep(resume, jobDesc, numQuestions);
       if (data.error) {
         setError(data.error);
         setLoading(false);
@@ -720,7 +716,26 @@ const ProductView = () => {
         </div>
       </div>
 
-      <div className="flex flex-col items-center gap-4 mb-24">
+      <div className="flex flex-col items-center gap-6 mb-24">
+        
+        {/* Controls */}
+        <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+          <div className="flex items-center gap-2 text-slate-500 text-sm font-medium">
+            <Settings size={16} />
+            <span>Depth:</span>
+          </div>
+          <input 
+            type="range" 
+            min="3" 
+            max="10" 
+            value={numQuestions} 
+            onChange={(e) => setNumQuestions(Number(e.target.value))}
+            className="w-32 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-900"
+          />
+          <span className="text-slate-900 font-bold min-w-[2ch]">{numQuestions}</span>
+          <span className="text-slate-400 text-xs uppercase tracking-wider">Questions</span>
+        </div>
+
         <button
           onClick={handleGenerate}
           disabled={loading || !resume || !jobDesc}
