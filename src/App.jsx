@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Sparkles, Briefcase, FileText, ChevronRight, Check, AlertCircle, 
   ArrowRight, Copy, Loader2, Menu, X, Shield, Lock, Eye, Server, 
@@ -43,7 +43,9 @@ const getAIVoice = async (text) => {
 // --- Visualization Components ---
 
 const VibeEqualizer = ({ vibe }) => {
+  // Safe default if vibe is null/undefined
   const data = vibe || { scope: 50, social: 50, structure: 50, techNature: 50 };
+  
   const SpectrumRow = ({ labelLeft, labelRight, value, colorClass }) => (
     <div className="mb-5 last:mb-0">
       <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
@@ -51,8 +53,8 @@ const VibeEqualizer = ({ vibe }) => {
         <span className={value > 60 ? "text-slate-800" : ""}>{labelRight}</span>
       </div>
       <div className="h-3 bg-slate-100 rounded-full relative overflow-hidden">
-        <div className={`absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r ${colorClass}`} style={{ width: `${value}%` }} />
-        <div className="absolute top-0 h-full w-1 bg-white shadow-md z-10 transition-all duration-1000 ease-out" style={{ left: `${value}%`, transform: 'translateX(-50%)' }} />
+        <div className={`absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r ${colorClass}`} style={{ width: `${value || 50}%` }} />
+        <div className="absolute top-0 h-full w-1 bg-white shadow-md z-10 transition-all duration-1000 ease-out" style={{ left: `${value || 50}%`, transform: 'translateX(-50%)' }} />
       </div>
     </div>
   );
@@ -71,13 +73,21 @@ const VibeEqualizer = ({ vibe }) => {
 };
 
 const RadarChart = ({ data }) => {
+  // CRASH PROOFING: Filter out bad data before rendering
+  const validData = useMemo(() => {
+    if (!Array.isArray(data)) return [];
+    return data.filter(d => d && typeof d.label === 'string' && typeof d.score === 'number');
+  }, [data]);
+
+  if (validData.length < 3) return <div className="flex h-64 items-center justify-center text-xs text-slate-400 italic">Not enough data for chart</div>;
+
   const size = 300;
   const center = size / 2;
   const radius = (size / 2) - 40;
   const levels = 4;
   
   const getCoordinates = (value, index) => {
-    const angleStep = (Math.PI * 2) / data.length;
+    const angleStep = (Math.PI * 2) / validData.length;
     const angle = (Math.PI / 2) + (index * angleStep);
     const r = (value / 100) * radius;
     const rotatedAngle = angle - Math.PI; 
@@ -88,7 +98,8 @@ const RadarChart = ({ data }) => {
 
   const webPoints = Array.from({ length: levels }).map((_, levelIndex) => {
     const levelRadius = (radius / levels) * (levelIndex + 1);
-    return data.map((_, i) => {
+    return validData.map((_, i) => {
+      const angleStep = (Math.PI * 2) / validData.length;
       const angle = (Math.PI / 2) + (i * angleStep) - Math.PI;
       const x = center + levelRadius * Math.cos(angle);
       const y = center + levelRadius * Math.sin(angle);
@@ -96,7 +107,7 @@ const RadarChart = ({ data }) => {
     }).join(' ');
   });
 
-  const dataPoints = data.map((d, i) => {
+  const dataPoints = validData.map((d, i) => {
     const coords = getCoordinates(d.score, i);
     return `${coords.x},${coords.y}`;
   }).join(' ');
@@ -105,12 +116,12 @@ const RadarChart = ({ data }) => {
     <div className="relative w-full max-w-[300px] aspect-square mx-auto">
       <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
         {webPoints.map((points, i) => (<polygon key={i} points={points} fill="none" stroke="#e2e8f0" strokeWidth="1" />))}
-        {data.map((_, i) => {
+        {validData.map((_, i) => {
           const end = getCoordinates(100, i);
           return <line key={i} x1={center} y1={center} x2={end.x} y2={end.y} stroke="#e2e8f0" strokeWidth="1" />;
         })}
         <polygon points={dataPoints} fill="rgba(56, 189, 248, 0.2)" stroke="#0ea5e9" strokeWidth="2" className="drop-shadow-sm" />
-        {data.map((d, i) => {
+        {validData.map((d, i) => {
           const coords = getCoordinates(d.score, i);
           return (
             <g key={i} className="group cursor-pointer">
@@ -126,9 +137,12 @@ const RadarChart = ({ data }) => {
 };
 
 const SkillCloud = ({ skills }) => {
+  if (!Array.isArray(skills) || skills.length === 0) return <div className="text-sm text-slate-400 italic">No specific skills extracted.</div>;
+
   return (
     <div className="flex flex-wrap gap-2">
       {skills.map((skill, i) => {
+        if (!skill || !skill.skill) return null; // Skip bad entries
         let styles = "bg-slate-100 text-slate-500 border-slate-200"; 
         let icon = null;
         if (skill.status === 'match') {
@@ -159,10 +173,31 @@ const CompanyIntelCard = ({ intel }) => {
       </div>
       <div className="grid md:grid-cols-2 gap-8">
         <div className="space-y-6">
-          <div><h4 className="flex items-center gap-2 text-xs font-bold text-sky-400 uppercase tracking-wider mb-3"><Target size={14} /> Key Challenges to Solve</h4><ul className="space-y-3">{intel.keyChallenges?.map((challenge, i) => (<li key={i} className="flex items-start gap-2 text-sm text-slate-300"><span className="mt-1.5 w-1 h-1 rounded-full bg-sky-500 shrink-0"></span>{challenge}</li>))}</ul></div>
-          <div><h4 className="flex items-center gap-2 text-xs font-bold text-pink-400 uppercase tracking-wider mb-3"><Globe size={14} /> Mission Keywords</h4><div className="flex flex-wrap gap-2">{intel.missionKeywords?.map((kw, i) => (<span key={i} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">#{kw}</span>))}</div></div>
+          <div>
+            <h4 className="flex items-center gap-2 text-xs font-bold text-sky-400 uppercase tracking-wider mb-3"><Target size={14} /> Key Challenges to Solve</h4>
+            <ul className="space-y-3">
+              {(intel.keyChallenges || []).map((challenge, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-slate-300"><span className="mt-1.5 w-1 h-1 rounded-full bg-sky-500 shrink-0"></span>{challenge}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h4 className="flex items-center gap-2 text-xs font-bold text-pink-400 uppercase tracking-wider mb-3"><Globe size={14} /> Mission Keywords</h4>
+            <div className="flex flex-wrap gap-2">
+              {(intel.missionKeywords || []).map((kw, i) => (
+                <span key={i} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">#{kw}</span>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700"><h4 className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-4"><Users size={14} /> Insider Talking Points</h4><div className="space-y-4">{intel.talkingPoints?.map((point, i) => (<div key={i} className="flex gap-3"><div className="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold font-mono">{i + 1}</div><p className="text-sm text-slate-300 leading-relaxed">{point}</p></div>))}</div></div>
+        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700">
+          <h4 className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-4"><Users size={14} /> Insider Talking Points</h4>
+          <div className="space-y-4">
+            {(intel.talkingPoints || []).map((point, i) => (
+              <div key={i} className="flex gap-3"><div className="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold font-mono">{i + 1}</div><p className="text-sm text-slate-300 leading-relaxed">{point}</p></div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -245,13 +280,14 @@ const PracticeSession = ({ questions, onClose }) => {
   const [loadingFeedback, setLoadingFeedback] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [voiceLoading, setVoiceLoading] = useState(false); // NEW: To show spinner
+  const [voiceLoading, setVoiceLoading] = useState(false); 
   const audioRef = useRef(null);
-  const audioCache = useRef({}); // NEW: Cache for audio URLs
+  const audioCache = useRef({}); 
   const [showHint, setShowHint] = useState(false);
   const [completed, setCompleted] = useState(new Set());
 
-  const question = questions[currentQIndex];
+  // CRASH PROOFING: Safely access question
+  const question = (questions && questions.length > 0) ? questions[currentQIndex] : null;
 
   useEffect(() => {
     let interval = null;
@@ -263,16 +299,19 @@ const PracticeSession = ({ questions, onClose }) => {
     return () => clearInterval(interval);
   }, [isActive, timer]);
 
-  // Intelligent Voice Loading with Caching
+  // Auto-generate voice when question changes
   useEffect(() => {
-    // 1. Cleanup and Reset
+    if (!question) return;
+
+    // 1. Clear audio to prevent stale state
+    setAudioUrl(null); 
+    
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
     setIsPlaying(false);
-    setAudioUrl(null); // Prevents playing stale audio
-    
+
     const loadVoice = async () => {
       // Check Cache First
       if (audioCache.current[currentQIndex]) {
@@ -302,18 +341,7 @@ const PracticeSession = ({ questions, onClose }) => {
     setTimer(0);
     setIsActive(false);
     setShowHint(false);
-  }, [currentQIndex, question.question]);
-
-  // Prefetch Next Question Audio
-  useEffect(() => {
-    const nextIndex = currentQIndex + 1;
-    if (nextIndex < questions.length && !audioCache.current[nextIndex]) {
-       getAIVoice(questions[nextIndex].question).then(blob => {
-         const url = URL.createObjectURL(blob);
-         audioCache.current[nextIndex] = url;
-       }).catch(() => {}); // Silent fail on prefetch is fine
-    }
-  }, [currentQIndex, questions]);
+  }, [currentQIndex, question]);
 
   const handlePlayAudio = () => {
     if (audioRef.current) {
@@ -329,7 +357,7 @@ const PracticeSession = ({ questions, onClose }) => {
   };
 
   const handleGetFeedback = async () => {
-    if (!userAnswer.trim()) return;
+    if (!userAnswer.trim() || !question) return;
     setLoadingFeedback(true);
     setIsActive(false);
     try {
@@ -353,12 +381,14 @@ const PracticeSession = ({ questions, onClose }) => {
     newCompleted.add(currentQIndex);
     setCompleted(newCompleted);
     
-    if (currentQIndex < questions.length - 1) {
+    if (questions && currentQIndex < questions.length - 1) {
       setTimeout(() => {
         setCurrentQIndex(prev => prev + 1);
       }, 500);
     }
   };
+
+  if (!question) return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
     <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in duration-300">
@@ -521,6 +551,10 @@ const PracticeSession = ({ questions, onClose }) => {
 
 const QuestionCard = ({ item, index }) => {
   const [isOpen, setIsOpen] = useState(false);
+  
+  // CRASH PROOFING: Handle missing item
+  if (!item) return null;
+
   const getCategoryColor = (cat) => {
     switch(cat?.toLowerCase()) {
       case 'behavioral': return 'bg-purple-100 text-purple-700';
@@ -596,7 +630,7 @@ const ProductView = () => {
   return (
     <div className="max-w-5xl mx-auto px-6 py-12 md:py-20 animate-in fade-in duration-500">
       {practiceMode && result && (
-        <PracticeSession questions={result.questions} onClose={() => setPracticeMode(false)} />
+        <PracticeSession questions={result.questions || []} onClose={() => setPracticeMode(false)} />
       )}
 
       <div className="text-center max-w-3xl mx-auto mb-16 space-y-6">
@@ -622,11 +656,11 @@ const ProductView = () => {
       {result && (
         <div ref={resultRef} className="space-y-16 animate-in fade-in slide-in-from-bottom-10 duration-700 pb-20">
           <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
-          <div><div className="flex items-center gap-3 mb-8"><BarChart3 className="text-sky-500" size={28} /><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Role Intelligence</h2></div><div className="grid md:grid-cols-3 gap-8"><div className="md:col-span-1 bg-white p-6 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col items-center"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-6">Candidate Fit Dimension</h3>{result.dimensions ? (<RadarChart data={result.dimensions} />) : (<div className="h-64 flex items-center justify-center text-slate-400 text-sm">No dimension data available</div>)}</div><div className="md:col-span-2 space-y-6"><div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm"><VibeEqualizer vibe={result.roleVibe} /></div><div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm"><div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Skill Match Network</h3><div className="flex gap-2 text-[10px] font-bold uppercase tracking-wider"><span className="flex items-center gap-1 text-emerald-600"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Match</span><span className="flex items-center gap-1 text-amber-600"><div className="w-2 h-2 rounded-full bg-amber-500"></div> Partial</span></div></div>{result.skillAnalysis ? (<SkillCloud skills={result.skillAnalysis} />) : (<p className="text-slate-400 text-sm">Analyzing skills...</p>)}</div></div></div></div>
+          <div><div className="flex items-center gap-3 mb-8"><BarChart3 className="text-sky-500" size={28} /><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Role Intelligence</h2></div><div className="grid md:grid-cols-3 gap-8"><div className="md:col-span-1 bg-white p-6 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col items-center"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-6">Candidate Fit Dimension</h3><RadarChart data={result.dimensions} /></div><div className="md:col-span-2 space-y-6"><div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm"><VibeEqualizer vibe={result.roleVibe} /></div><div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm"><div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Skill Match Network</h3><div className="flex gap-2 text-[10px] font-bold uppercase tracking-wider"><span className="flex items-center gap-1 text-emerald-600"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Match</span><span className="flex items-center gap-1 text-amber-600"><div className="w-2 h-2 rounded-full bg-amber-500"></div> Partial</span></div></div><SkillCloud skills={result.skillAnalysis} /></div></div></div></div>
           <CompanyIntelCard intel={result.companyIntel} />
           <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
           <div className="bg-gradient-to-r from-indigo-50 to-sky-50 p-8 rounded-3xl border border-indigo-100 relative overflow-hidden"><div className="absolute top-0 right-0 w-32 h-32 bg-indigo-200 rounded-full blur-3xl opacity-20"></div><div className="relative z-10"><h3 className="text-xl font-bold text-indigo-900 mb-3 flex items-center gap-2"><Sparkles className="text-indigo-500" size={20} /> Strategic Edge</h3><p className="text-indigo-900/80 leading-relaxed text-lg">{result.strategicAdvice}</p></div></div>
-          <div><div className="flex items-end justify-between mb-8"><div><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Interview Simulation</h2><p className="text-slate-500 mt-2">Questions sorted by probability of being asked.</p></div><button onClick={() => setPracticeMode(true)} className="hidden md:flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-full font-medium hover:bg-slate-800 transition-all hover:scale-105 shadow-xl shadow-slate-900/10"><Play size={16} fill="currentColor" /> Start Practice Session</button></div><div className="space-y-4">{result.questions?.map((q, index) => (<QuestionCard key={index} item={q} index={index} />))}</div><button onClick={() => setPracticeMode(true)} className="md:hidden w-full mt-8 flex justify-center items-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-full font-medium shadow-xl"><Play size={16} fill="currentColor" /> Start Practice Session</button></div>
+          <div><div className="flex items-end justify-between mb-8"><div><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Interview Simulation</h2><p className="text-slate-500 mt-2">Questions sorted by probability of being asked.</p></div><button onClick={() => setPracticeMode(true)} className="hidden md:flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-full font-medium hover:bg-slate-800 transition-all hover:scale-105 shadow-xl shadow-slate-900/10"><Play size={16} fill="currentColor" /> Start Practice Session</button></div><div className="space-y-4">{(result.questions || []).map((q, index) => (<QuestionCard key={index} item={q} index={index} />))}</div><button onClick={() => setPracticeMode(true)} className="md:hidden w-full mt-8 flex justify-center items-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-full font-medium shadow-xl"><Play size={16} fill="currentColor" /> Start Practice Session</button></div>
           <div className="bg-slate-900 text-slate-300 rounded-3xl p-8 md:p-12 text-center space-y-6 relative overflow-hidden"><div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 z-0"></div><div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-sky-500 via-pink-500 to-purple-500"></div><div className="relative z-10"><h3 className="text-2xl font-bold text-white">Feeling prepared?</h3><p className="max-w-xl mx-auto my-6 text-slate-400">You can generate a new plan for a different role, or keep practicing these questions until you feel 100% confident.</p><button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="inline-flex items-center gap-2 bg-white text-slate-900 px-6 py-3 rounded-full font-medium hover:bg-slate-100 transition-colors">Analyze Another Role <GraduationCap size={18} /></button></div></div>
         </div>
       )}
