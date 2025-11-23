@@ -88,7 +88,6 @@ const RadarChart = ({ data }) => {
 
   const webPoints = Array.from({ length: levels }).map((_, levelIndex) => {
     const levelRadius = (radius / levels) * (levelIndex + 1);
-    const angleStep = (Math.PI * 2) / data.length;
     return data.map((_, i) => {
       const angle = (Math.PI / 2) + (i * angleStep) - Math.PI;
       const x = center + levelRadius * Math.cos(angle);
@@ -246,7 +245,9 @@ const PracticeSession = ({ questions, onClose }) => {
   const [loadingFeedback, setLoadingFeedback] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [voiceLoading, setVoiceLoading] = useState(false); // NEW: To show spinner
   const audioRef = useRef(null);
+  const audioCache = useRef({}); // NEW: Cache for audio URLs
   const [showHint, setShowHint] = useState(false);
   const [completed, setCompleted] = useState(new Set());
 
@@ -262,35 +263,57 @@ const PracticeSession = ({ questions, onClose }) => {
     return () => clearInterval(interval);
   }, [isActive, timer]);
 
-  // Auto-generate voice when question changes
+  // Intelligent Voice Loading with Caching
   useEffect(() => {
-    // 1. Clear audio to prevent stale state
-    setAudioUrl(null); 
-    
+    // 1. Cleanup and Reset
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
     setIsPlaying(false);
+    setAudioUrl(null); // Prevents playing stale audio
+    
+    const loadVoice = async () => {
+      // Check Cache First
+      if (audioCache.current[currentQIndex]) {
+        setAudioUrl(audioCache.current[currentQIndex]);
+        return;
+      }
 
-    const fetchVoice = async () => {
+      // Fetch if not in cache
+      setVoiceLoading(true);
       try {
         const blob = await getAIVoice(question.question);
         const url = URL.createObjectURL(blob);
+        audioCache.current[currentQIndex] = url; // Save to cache
         setAudioUrl(url); 
       } catch (e) {
         console.error("Voice generation failed", e);
+      } finally {
+        setVoiceLoading(false);
       }
     };
-    fetchVoice();
+
+    loadVoice();
     
-    // Reset component state
+    // Reset other states
     setUserAnswer('');
     setFeedback(null);
     setTimer(0);
     setIsActive(false);
     setShowHint(false);
   }, [currentQIndex, question.question]);
+
+  // Prefetch Next Question Audio
+  useEffect(() => {
+    const nextIndex = currentQIndex + 1;
+    if (nextIndex < questions.length && !audioCache.current[nextIndex]) {
+       getAIVoice(questions[nextIndex].question).then(blob => {
+         const url = URL.createObjectURL(blob);
+         audioCache.current[nextIndex] = url;
+       }).catch(() => {}); // Silent fail on prefetch is fine
+    }
+  }, [currentQIndex, questions]);
 
   const handlePlayAudio = () => {
     if (audioRef.current) {
@@ -371,11 +394,19 @@ const PracticeSession = ({ questions, onClose }) => {
               )}
               <button 
                 onClick={handlePlayAudio}
-                disabled={!audioUrl}
+                disabled={!audioUrl && !voiceLoading}
                 className={`flex items-center gap-2 px-5 py-2 rounded-full transition-all ${isPlaying ? 'bg-sky-100 text-sky-700 ring-2 ring-sky-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
-                {isPlaying ? <StopCircle size={20} className="animate-pulse"/> : <Volume2 size={20} />}
-                <span className="text-sm font-medium">{isPlaying ? 'Stop' : 'Listen to Question'}</span>
+                {voiceLoading ? (
+                  <Loader2 size={20} className="animate-spin text-slate-400" />
+                ) : isPlaying ? (
+                  <StopCircle size={20} className="animate-pulse"/>
+                ) : (
+                  <Volume2 size={20} />
+                )}
+                <span className="text-sm font-medium">
+                  {voiceLoading ? 'Loading Voice...' : isPlaying ? 'Stop' : 'Listen to Question'}
+                </span>
               </button>
             </div>
           </div>
