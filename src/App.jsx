@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Sparkles, Briefcase, FileText, ChevronRight, Check, AlertCircle, 
   ArrowRight, Copy, Loader2, Menu, X, Shield, Lock, Eye, Server, 
-  Cpu, Network, Zap, GraduationCap, Play, Timer, Award, 
-  Lightbulb, Brain, Target, Hash, BarChart3, PieChart, Activity,
-  ThumbsUp, ThumbsDown, RefreshCw, Building, Globe, Users, TrendingUp,
-  Sliders, Volume2, StopCircle, Settings, Mic, Send, MessageSquare
+  Cpu, Network, Zap, GraduationCap, Play, Timer, 
+  Lightbulb, Target, Hash, BarChart3, Activity,
+  ThumbsUp, ThumbsDown, Building, Globe, Users,
+  Sliders, Volume2, StopCircle, Settings, MessageSquare
 } from 'lucide-react';
 
-// --- API Helper ---
+// --- API Helpers ---
+
 const generateInterviewPrep = async (resume, jobDesc, numQuestions) => {
   const response = await fetch('/api/generate', {
     method: 'POST',
@@ -36,7 +37,7 @@ const getAIVoice = async (text) => {
     body: JSON.stringify({ text })
   });
   if (!response.ok) throw new Error('Voice generation failed');
-  return await response.blob(); // Returns audio as a blob
+  return await response.blob();
 };
 
 // --- Visualization Components ---
@@ -74,8 +75,9 @@ const RadarChart = ({ data }) => {
   const center = size / 2;
   const radius = (size / 2) - 40;
   const levels = 4;
-  const angleStep = (Math.PI * 2) / data.length;
+  
   const getCoordinates = (value, index) => {
+    const angleStep = (Math.PI * 2) / data.length;
     const angle = (Math.PI / 2) + (index * angleStep);
     const r = (value / 100) * radius;
     const rotatedAngle = angle - Math.PI; 
@@ -83,8 +85,10 @@ const RadarChart = ({ data }) => {
     const y = center + r * Math.sin(rotatedAngle);
     return { x, y };
   };
+
   const webPoints = Array.from({ length: levels }).map((_, levelIndex) => {
     const levelRadius = (radius / levels) * (levelIndex + 1);
+    const angleStep = (Math.PI * 2) / data.length;
     return data.map((_, i) => {
       const angle = (Math.PI / 2) + (i * angleStep) - Math.PI;
       const x = center + levelRadius * Math.cos(angle);
@@ -92,10 +96,12 @@ const RadarChart = ({ data }) => {
       return `${x},${y}`;
     }).join(' ');
   });
+
   const dataPoints = data.map((d, i) => {
     const coords = getCoordinates(d.score, i);
     return `${coords.x},${coords.y}`;
   }).join(' ');
+
   return (
     <div className="relative w-full max-w-[300px] aspect-square mx-auto">
       <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
@@ -241,6 +247,8 @@ const PracticeSession = ({ questions, onClose }) => {
   const [audioUrl, setAudioUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
+  const [showHint, setShowHint] = useState(false);
+  const [completed, setCompleted] = useState(new Set());
 
   const question = questions[currentQIndex];
 
@@ -256,22 +264,33 @@ const PracticeSession = ({ questions, onClose }) => {
 
   // Auto-generate voice when question changes
   useEffect(() => {
+    // 1. Clear audio to prevent stale state
+    setAudioUrl(null); 
+    
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsPlaying(false);
+
     const fetchVoice = async () => {
       try {
         const blob = await getAIVoice(question.question);
         const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
+        setAudioUrl(url); 
       } catch (e) {
         console.error("Voice generation failed", e);
       }
     };
     fetchVoice();
-    // Reset states
+    
+    // Reset component state
     setUserAnswer('');
     setFeedback(null);
     setTimer(0);
     setIsActive(false);
-  }, [currentQIndex]);
+    setShowHint(false);
+  }, [currentQIndex, question.question]);
 
   const handlePlayAudio = () => {
     if (audioRef.current) {
@@ -289,7 +308,7 @@ const PracticeSession = ({ questions, onClose }) => {
   const handleGetFeedback = async () => {
     if (!userAnswer.trim()) return;
     setLoadingFeedback(true);
-    setIsActive(false); // Stop timer
+    setIsActive(false);
     try {
       const data = await getAIFeedback(question.question, userAnswer);
       setFeedback(data);
@@ -306,9 +325,20 @@ const PracticeSession = ({ questions, onClose }) => {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const markComplete = (score) => {
+    const newCompleted = new Set(completed);
+    newCompleted.add(currentQIndex);
+    setCompleted(newCompleted);
+    
+    if (currentQIndex < questions.length - 1) {
+      setTimeout(() => {
+        setCurrentQIndex(prev => prev + 1);
+      }, 500);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in duration-300">
-      {/* Header */}
       <div className="px-6 h-20 flex items-center justify-between border-b border-slate-100 bg-white">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold shadow-lg shadow-slate-900/20">
@@ -319,20 +349,17 @@ const PracticeSession = ({ questions, onClose }) => {
         <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-900"><X size={24} /></button>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-6 pb-24">
         <div className="max-w-3xl mx-auto space-y-8">
           
-          {/* Question Section */}
           <div className="text-center space-y-6">
             <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold uppercase tracking-wider">
               {question.category} • {question.difficulty}
             </span>
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 leading-tight">
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 leading-tight relative group">
               {question.question}
             </h2>
             
-            {/* Audio Player */}
             <div className="flex justify-center">
               {audioUrl && (
                 <audio 
@@ -353,17 +380,13 @@ const PracticeSession = ({ questions, onClose }) => {
             </div>
           </div>
 
-          {/* Answer Section */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm relative">
             <div className="flex items-center justify-between mb-4">
               <div className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm font-mono font-medium ${isActive ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}>
                 <Timer size={16} />
                 {formatTime(timer)}
               </div>
-              <button 
-                onClick={() => setIsActive(!isActive)}
-                className="text-sm font-medium text-sky-600 hover:underline"
-              >
+              <button onClick={() => setIsActive(!isActive)} className="text-sm font-medium text-sky-600 hover:underline">
                 {isActive ? 'Pause Timer' : 'Start Timer'}
               </button>
             </div>
@@ -393,13 +416,10 @@ const PracticeSession = ({ questions, onClose }) => {
             )}
           </div>
 
-          {/* Feedback Section */}
           {feedback && (
             <div className="bg-gradient-to-br from-sky-50 to-indigo-50 rounded-2xl p-8 border border-sky-100 animate-in slide-in-from-bottom-5">
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-white rounded-lg shadow-sm text-sky-600">
-                  <Sparkles size={24} />
-                </div>
+                <div className="p-2 bg-white rounded-lg shadow-sm text-sky-600"><Sparkles size={24} /></div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">Coach Feedback</h3>
                   <div className="flex items-center gap-2">
@@ -420,9 +440,7 @@ const PracticeSession = ({ questions, onClose }) => {
                 </div>
                 
                 <div className="bg-white rounded-xl p-4 border border-emerald-100/50 shadow-sm">
-                  <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <Check size={12} /> Better Example
-                  </h4>
+                  <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1"><Check size={12} /> Better Example</h4>
                   <p className="text-slate-700 leading-relaxed italic">"{feedback.betterAnswer}"</p>
                 </div>
               </div>
@@ -442,6 +460,26 @@ const PracticeSession = ({ questions, onClose }) => {
                 </button>
               </div>
             </div>
+          )}
+
+          {!feedback && (
+            <div className="grid grid-cols-2 gap-4 w-full max-w-sm mx-auto mt-8">
+              <button onClick={() => markComplete('high')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:scale-105 transition-all gap-2"><ThumbsUp size={24} /><span className="font-bold text-sm">Nailed It (Skip)</span></button>
+              <button onClick={() => markComplete('low')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:scale-105 transition-all gap-2"><ThumbsDown size={24} /><span className="font-bold text-sm">Skip & Practice Later</span></button>
+            </div>
+          )}
+
+          {showHint ? (
+            <div className="w-full max-w-3xl bg-white p-8 rounded-2xl text-left border border-sky-100 shadow-xl shadow-sky-100/50 animate-in slide-in-from-bottom-5 ring-4 ring-sky-50">
+              <h4 className="font-bold text-sky-900 mb-4 flex items-center gap-2 text-lg"><Lightbulb size={20} className="text-sky-500" /> Strategic Approach</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
+                  <div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Situation</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.situation}</p></div>
+                  <div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Action</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.action}</p></div>
+                  <div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Result</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.result}</p></div>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowHint(true)} className="text-slate-400 hover:text-sky-600 text-sm font-medium transition-colors flex items-center gap-2 mx-auto block"><Eye size={16} /> Reveal Strategy Hints</button>
           )}
 
         </div>
