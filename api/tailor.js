@@ -10,8 +10,8 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Missing API Key' });
   }
 
-  // STABLE MODEL URL
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${apiKey}`;
+  // FIXED: Using the universal alias 'gemini-1.5-flash'
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   const systemPrompt = `You are a master executive resume writer. Rewrite the provided resume to target the job description.
   OUTPUT FORMAT: Return a SINGLE, VALID JSON object. No markdown.
@@ -37,6 +37,7 @@ export default async function handler(request, response) {
     });
 
     if (!geminiResponse.ok) {
+      console.error(`Tailor API Failed. Status: ${geminiResponse.status}`);
       throw new Error(`Gemini Tailor Error: ${geminiResponse.statusText}`);
     }
     
