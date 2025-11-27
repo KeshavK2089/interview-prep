@@ -7,6 +7,12 @@ export default async function handler(request, response) {
   if (!apiKey) return response.status(500).json({ error: 'Server Config Error: Missing API Key' });
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  // Gatekeeper Logic: Check for junk before generating
+  if (!resume || resume.length < 50 || !jobDesc || jobDesc.length < 50) {
+    return response.status(400).json({ error: "Input too short. Please provide a valid resume and job description." });
+  }
+
   const count = 6; 
 
   const masterPrompt = `
@@ -16,16 +22,14 @@ export default async function handler(request, response) {
     *** SECURITY GATEKEEPER ***
     First, analyze the input text. 
     If the "RESUME" or "JOB DESCRIPTION" content appears to be:
-    1. Gibberish/Random characters (e.g. "asdfasdf")
-    2. Completely unrelated (e.g. a cooking recipe, code snippet, or song lyrics)
-    3. Too short to be useful (less than 2-3 sentences of actual content)
+    1. Gibberish/Random characters
+    2. Completely unrelated (e.g. a cooking recipe, code snippet, lyrics)
     
     THEN RETURN ONLY THIS JSON:
     { "error": "Input invalid. Please provide a real resume and job description text." }
-    
     *** END GATEKEEPER ***
 
-    INSTRUCTION: If inputs are valid, generate exactly ${count} diverse questions.
+    INSTRUCTION: Generate exactly ${count} diverse questions.
     CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown.
     
     JSON STRUCTURE:
@@ -71,7 +75,10 @@ export default async function handler(request, response) {
     const last = text.lastIndexOf('}');
     if (first !== -1 && last !== -1) text = text.substring(first, last + 1);
 
-    return response.status(200).json(JSON.parse(text));
+    const json = JSON.parse(text);
+    if (json.error) return response.status(400).json({ error: json.error });
+
+    return response.status(200).json(json);
   } catch (error) {
     return response.status(500).json({ error: 'Failed to generate plan' });
   }
