@@ -10,19 +10,37 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Missing API Key' });
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // UPGRADE: Switched to gemini-1.5-pro for superior writing capability
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`;
 
   const masterPrompt = `
-    ROLE: You are a master executive resume writer. 
-    TASK: Rewrite the provided resume to target the job description.
+    ROLE: You are a world-class executive resume writer and interview coach.
     
+    TASK 1: REWRITE RESUME
+    Rewrite the user's resume to target the specific job description. 
+    
+    STYLE RULES (CRITICAL):
+    1. **Human Rhythm:** Use "burstiness". Mix short, punchy impact sentences (5-10 words) with longer, detailed context sentences (15-25 words). 
+    2. **Anti-Robot:** DO NOT use words like "spearheaded", "delved", "underscored", "pivotal", or "fostered". Use punchy, real verbs like "Built", "Led", "Fixed", "Cut", "Drove".
+    3. **ATS Optimization:** naturally weave in keywords from the job description.
+    4. **Formatting:** Follow the structure: Header (Name, Contact), Education, Experience, Projects, Skills. NO SUMMARY.
+
+    TASK 2: INTERVIEW TALKING POINTS
+    For the top 3 experiences or projects, write a "Human Translation" on how to speak about them in an interview.
+
     CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown.
     
     JSON STRUCTURE:
     {
       "atsScore": number (0-100),
-      "keyOptimizations": ["string"],
-      "tailoredContent": "The full markdown text of the new resume"
+      "keyOptimizations": ["string", "string", "string"],
+      "tailoredContent": "The full text of the new resume formatted in Markdown",
+      "resumeTalkingPoints": [
+        { 
+          "role": "Role/Project Name", 
+          "script": "A conversational, 1-2 sentence way to explain this achievement to a human interviewer." 
+        }
+      ]
     }
 
     ORIGINAL RESUME: ${resume}
