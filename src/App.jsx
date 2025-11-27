@@ -11,7 +11,33 @@ import {
   Mic, Smartphone, Laptop, Mail, Linkedin, User
 } from 'lucide-react';
 
-// --- API HELPERS (Calling Secure Backend) ---
+// --- HELPER: Robust JSON Parser ---
+const parseAIResponse = (text) => {
+  if (!text) return null;
+  let cleanText = text.replace(/```json/g, '').replace(/```/g, '');
+  const firstOpen = cleanText.indexOf('{');
+  const lastClose = cleanText.lastIndexOf('}');
+  if (firstOpen !== -1 && lastClose !== -1) {
+    cleanText = cleanText.substring(firstOpen, lastClose + 1);
+  }
+  try {
+    return JSON.parse(cleanText);
+  } catch (e) {
+    const sanitized = cleanText.replace(/\\(?![/u"bfnrt])/g, "\\\\");
+    try { return JSON.parse(sanitized); } catch (e2) { return null; }
+  }
+};
+
+const renderSafe = (content) => {
+  if (content === null || content === undefined) return '';
+  if (typeof content === 'string') return content;
+  if (typeof content === 'number') return content;
+  if (Array.isArray(content)) return content.map(i => renderSafe(i)).join(', ');
+  if (typeof content === 'object') return JSON.stringify(content); 
+  return String(content);
+};
+
+// --- API FUNCTIONS (Calling Secure Backend) ---
 
 const generateInterviewPrep = async (resume, jobDesc) => {
   const response = await fetch('/api/generate', {
@@ -22,11 +48,12 @@ const generateInterviewPrep = async (resume, jobDesc) => {
   
   const contentType = response.headers.get("content-type");
   if (!contentType || !contentType.includes("application/json")) {
-    throw new Error("Server connection failed. Ensure API files are deployed.");
+    throw new Error("Server connection failed. Ensure API files are deployed to Vercel.");
   }
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Failed to generate prep plan');
+  if (data.error) throw new Error(data.error); // Handle Gatekeeper
+  if (!response.ok) throw new Error('Failed to generate prep plan');
   return data;
 };
 
@@ -38,7 +65,8 @@ const generateTailoredResume = async (resume, jobDesc) => {
       body: JSON.stringify({ resume, jobDesc })
     });
     const data = await response.json();
-    if (!response.ok || data.error) return null;
+    if (data.error) throw new Error(data.error); // Handle Gatekeeper
+    if (!response.ok) return null;
     return data;
   } catch (err) { return null; }
 };
@@ -59,7 +87,7 @@ const getAIVoice = async (text) => {
     body: JSON.stringify({ text })
   });
   if (!response.ok) throw new Error('Voice failed');
-  // FIX: We return the Blob directly because the backend sends a WAV file
+  // FIX: Return blob directly, backend handles WAV conversion
   return await response.blob();
 };
 
@@ -150,24 +178,18 @@ const InputCard = ({ title, icon: Icon, placeholder, value, onChange, colorClass
         spellCheck="false"
       />
       <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400 font-medium">
-        <span className={value.length > 0 ? "text-sky-600" : ""}>{value.length} chars</span>
+        <span className={value.length < 50 ? "text-red-400" : "text-emerald-600"}>
+          {value.length} chars {value.length < 50 && "(min 50)"}
+        </span>
         <span className="group-hover:text-slate-600 transition-colors flex items-center gap-1 cursor-pointer">Paste text <Copy size={12} /></span>
       </div>
     </div>
   </div>
 );
 
-// Helper for Safe Rendering
-const renderSafe = (c) => {
-  if (c === null || c === undefined) return '';
-  if (typeof c === 'string') return c;
-  return String(c);
-};
-
 const QuestionCard = ({ item, index }) => {
   const [isOpen, setIsOpen] = useState(false);
   if (!item) return null;
-  
   const getCategoryColor = (cat) => {
     switch(cat?.toLowerCase()) {
       case 'behavioral': return 'bg-purple-100 text-purple-700';
@@ -176,7 +198,6 @@ const QuestionCard = ({ item, index }) => {
       default: return 'bg-slate-100 text-slate-700';
     }
   };
-  
   return (
     <div className="group border border-slate-200 rounded-xl overflow-hidden transition-all duration-300 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-100/50 bg-white">
       <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-start gap-4 p-5 text-left transition-colors">
@@ -631,6 +652,128 @@ const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-i
       </div>
     </div>
 </div></div>);
+
+// --- Practice Mode Component ---
+const PracticeSession = ({ questions, onClose }) => {
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [timer, setTimer] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [userAnswer, setUserAnswer] = useState('');
+  const [feedback, setFeedback] = useState(null);
+  const [loadingFeedback, setLoadingFeedback] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const audioRef = useRef(null);
+  const audioCache = useRef({});
+  const [showHint, setShowHint] = useState(false);
+  const [completed, setCompleted] = useState(new Set());
+
+  const question = (questions && questions.length > 0) ? questions[currentQIndex] : null;
+
+  useEffect(() => {
+    let interval = null;
+    if (isActive) {
+      interval = setInterval(() => { setTimer(seconds => seconds + 1); }, 1000);
+    } else if (!isActive && timer !== 0) {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isActive, timer]);
+
+  useEffect(() => {
+    if (!question) return;
+    setAudioUrl(null); 
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    setIsPlaying(false);
+    const loadVoice = async () => {
+      if (audioCache.current[currentQIndex]) { setAudioUrl(audioCache.current[currentQIndex]); return; }
+      setVoiceLoading(true);
+      try { const blob = await getAIVoice(question.question); const url = URL.createObjectURL(blob); audioCache.current[currentQIndex] = url; setAudioUrl(url); } catch (e) { console.error("Voice failed", e); } finally { setVoiceLoading(false); }
+    };
+    loadVoice();
+    setUserAnswer(''); setFeedback(null); setTimer(0); setIsActive(false); setShowHint(false);
+  }, [currentQIndex, question]);
+
+  // Speech Recognition Hook
+  const toggleListening = () => {
+    if (isListening) {
+      setIsListening(false);
+      // Stop logic would go here for a real continuous stream, but browser handles single shot well
+    } else {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Your browser does not support voice recording. Please use Chrome or Edge.");
+        return;
+      }
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setUserAnswer(prev => (prev ? prev + " " + transcript : transcript));
+        if (!isActive) setIsActive(true);
+      };
+      
+      recognition.start();
+    }
+  };
+
+  const handlePlayAudio = () => { if (audioRef.current) { if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); } else { audioRef.current.play(); setIsPlaying(true); } } };
+  const handleGetFeedback = async () => { if (!userAnswer.trim() || !question) return; setLoadingFeedback(true); setIsActive(false); try { const data = await getAIFeedback(question.question, userAnswer); setFeedback(data); } catch (err) { console.error(err); } finally { setLoadingFeedback(false); } };
+  const formatTime = (time) => { const minutes = Math.floor(time / 60); const seconds = time % 60; return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`; };
+  const markComplete = (score) => { const newCompleted = new Set(completed); newCompleted.add(currentQIndex); setCompleted(newCompleted); if (questions && currentQIndex < questions.length - 1) { setTimeout(() => { setCurrentQIndex(prev => prev + 1); }, 500); } };
+
+  if (!question) return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in duration-300">
+      <div className="px-6 h-20 flex items-center justify-between border-b border-slate-100 bg-white">
+        <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold shadow-lg shadow-slate-900/20">{currentQIndex + 1}</div><span className="text-sm font-medium text-slate-500">Question {currentQIndex + 1} of {questions.length}</span></div>
+        <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-900"><X size={24} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-6 pb-24">
+        <div className="max-w-3xl mx-auto space-y-8">
+          <div className="text-center space-y-6">
+            <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold uppercase tracking-wider">{renderSafe(question.category)} • {renderSafe(question.difficulty)}</span>
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 leading-tight relative group">{renderSafe(question.question)}</h2>
+            <div className="flex justify-center">
+              {audioUrl && (<audio ref={audioRef} src={audioUrl} autoPlay onEnded={() => setIsPlaying(false)} className="hidden" />)}
+              <button onClick={handlePlayAudio} disabled={!audioUrl && !voiceLoading} className={`flex items-center gap-2 px-5 py-2 rounded-full transition-all ${isPlaying ? 'bg-sky-100 text-sky-700 ring-2 ring-sky-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{voiceLoading ? (<Loader2 size={20} className="animate-spin text-slate-400" />) : isPlaying ? (<StopCircle size={20} className="animate-pulse"/>) : (<Volume2 size={20} />)}<span className="text-sm font-medium">{voiceLoading ? 'Loading Voice...' : isPlaying ? 'Stop' : 'Listen to Question'}</span></button>
+            </div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm relative">
+            <div className="flex items-center justify-between mb-4">
+              <div className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm font-mono font-medium ${isActive ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}><Timer size={16} />{formatTime(timer)}</div>
+              <div className="flex gap-2">
+                 {/* Microphone Button */}
+                 <button 
+                   onClick={toggleListening}
+                   className={`p-2 rounded-full transition-all ${isListening ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                   title="Record Answer"
+                 >
+                   <Mic size={18} />
+                 </button>
+                 <button onClick={() => setIsActive(!isActive)} className="text-sm font-medium text-sky-600 hover:underline">{isActive ? 'Pause Timer' : 'Start Timer'}</button>
+              </div>
+            </div>
+            <textarea value={userAnswer} onChange={(e) => { setUserAnswer(e.target.value); if (!isActive && !feedback) setIsActive(true); }} placeholder="Type your answer here or click the microphone to record..." className="w-full h-40 p-4 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-sky-500 text-slate-700 resize-none" disabled={!!feedback} />
+            {!feedback && (<div className="mt-4 flex justify-end"><button onClick={handleGetFeedback} disabled={loadingFeedback || !userAnswer.trim()} className={`flex items-center gap-2 px-6 py-3 rounded-full text-white font-medium transition-all ${loadingFeedback || !userAnswer.trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800 hover:scale-105'}`}>{loadingFeedback ? <Loader2 className="animate-spin" size={18} /> : <MessageSquare size={18} />} Get AI Feedback</button></div>)}
+          </div>
+          {feedback && (<div className="bg-gradient-to-br from-sky-50 to-indigo-50 rounded-2xl p-8 border border-sky-100 animate-in slide-in-from-bottom-5"><div className="flex items-center gap-3 mb-6"><div className="p-2 bg-white rounded-lg shadow-sm text-sky-600"><Sparkles size={24} /></div><div><h3 className="text-lg font-bold text-slate-900">Coach Feedback</h3><div className="flex items-center gap-2"><div className="flex">{[...Array(10)].map((_, i) => (<div key={i} className={`w-2 h-2 rounded-full mr-1 ${i < feedback.score ? 'bg-sky-500' : 'bg-slate-200'}`} />))}</div><span className="text-sm font-bold text-sky-700">{feedback.score}/10</span></div></div></div><div className="space-y-6"><div className="bg-white/60 rounded-xl p-4 border border-sky-100/50"><h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Analysis</h4><p className="text-slate-700 leading-relaxed">{renderSafe(feedback.feedback)}</p></div><div className="bg-white rounded-xl p-4 border border-emerald-100/50 shadow-sm"><h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1"><Check size={12} /> Better Example</h4><p className="text-slate-700 leading-relaxed italic">"{renderSafe(feedback.betterAnswer)}"</p></div></div><div className="mt-8 flex justify-end"><button onClick={() => { if (currentQIndex < questions.length - 1) { setCurrentQIndex(prev => prev + 1); } else { onClose(); } }} className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800 transition-all">Next Question <ArrowRight size={18} /></button></div></div>)}
+          {!feedback && (<div className="grid grid-cols-2 gap-4 w-full max-w-sm mx-auto mt-8"><button onClick={() => markComplete('high')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:scale-105 transition-all gap-2"><ThumbsUp size={24} /><span className="font-bold text-sm">Nailed It (Skip)</span></button><button onClick={() => markComplete('low')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:scale-105 transition-all gap-2"><ThumbsDown size={24} /><span className="font-bold text-sm">Skip & Practice Later</span></button></div>)}
+          {showHint ? (<div className="w-full max-w-3xl bg-white p-8 rounded-2xl text-left border border-sky-100 shadow-xl shadow-sky-100/50 animate-in slide-in-from-bottom-5 ring-4 ring-sky-50"><h4 className="font-bold text-sky-900 mb-4 flex items-center gap-2 text-lg"><Lightbulb size={20} className="text-sky-500" /> Strategic Approach</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm"><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Situation</span><p className="text-slate-700 leading-relaxed">{renderSafe(question.starGuide?.situation)}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Action</span><p className="text-slate-700 leading-relaxed">{renderSafe(question.starGuide?.action)}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Result</span><p className="text-slate-700 leading-relaxed">{renderSafe(question.starGuide?.result)}</p></div></div></div>) : (<button onClick={() => setShowHint(true)} className="text-slate-400 hover:text-sky-600 text-sm font-medium transition-colors flex items-center gap-2 mx-auto block"><Eye size={16} /> Reveal Strategy Hints</button>)}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- Main View Controller ---
 
