@@ -6,35 +6,45 @@ export default async function handler(request, response) {
   const { question, answer } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
-  // FIXED: Using the universal alias 'gemini-1.5-flash'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // FIXED: Reverted to 'gemini-pro'
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
 
-  const systemPrompt = `You are an interview coach. Analyze the candidate's answer.
-  OUTPUT FORMAT: JSON Object.
-  {
-    "score": number (1-10),
-    "feedback": "string",
-    "betterAnswer": "string"
-  }`;
+  const masterPrompt = `
+    You are an interview coach. Analyze the candidate's answer.
+    
+    CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown.
+    
+    JSON STRUCTURE:
+    {
+      "score": number (1-10),
+      "feedback": "string",
+      "betterAnswer": "string"
+    }
 
-  const userPrompt = `QUESTION: "${question}"\nCANDIDATE ANSWER: "${answer}"`;
+    QUESTION: "${question}"
+    CANDIDATE ANSWER: "${answer}"
+  `;
 
   try {
     const geminiResponse = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: userPrompt }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { responseMimeType: "application/json" }
+        contents: [{ parts: [{ text: masterPrompt }] }]
       })
     });
 
     if (!geminiResponse.ok) throw new Error('Gemini API Error');
 
     const data = await geminiResponse.json();
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    
+    // Manual Cleaner
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      text = jsonMatch[0];
+    }
     
     return response.status(200).json(JSON.parse(text));
   } catch (error) {
