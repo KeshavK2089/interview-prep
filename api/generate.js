@@ -1,20 +1,16 @@
-// This runs on the server. Your API Key is safe here.
 export default async function handler(request, response) {
   if (request.method !== 'POST') {
     return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 1. Extract the new numQuestions parameter
   const { resume, jobDesc, numQuestions } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    return response.status(500).json({ error: 'Server configuration error: Missing API Key' });
+    return response.status(500).json({ error: 'Missing API Key' });
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-
-  // 2. Inject the number of questions into the instructions
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const count = numQuestions || 7; 
 
   const systemPrompt = `You are an elite executive career coach. 
@@ -45,7 +41,14 @@ export default async function handler(request, response) {
       "name": "String",
       "missionKeywords": ["String"],
       "keyChallenges": ["String"],
+      "hiringManagerPainPoints": ["String", "String"], // NEW: What keeps them up at night?
       "talkingPoints": ["String"]
+    },
+    "elevatorPitch": {
+      "hook": "String (First 10 seconds)",
+      "body": "String (Your experience)",
+      "close": "String (Why this role)",
+      "fullScript": "String"
     },
     "skillAnalysis": [
       { "skill": "String", "status": "match" | "partial" | "missing" }
@@ -71,7 +74,11 @@ export default async function handler(request, response) {
       })
     });
 
-    if (!geminiResponse.ok) throw new Error('Gemini API Error');
+    if (!geminiResponse.ok) {
+      const errorData = await geminiResponse.text();
+      console.error("Gemini API Error:", errorData);
+      throw new Error('Gemini API Error');
+    }
     
     const data = await geminiResponse.json();
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
