@@ -12,11 +12,11 @@ export default async function handler(request, response) {
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-  const prompt = `
+  const masterPrompt = `
     ROLE: You are a master executive resume writer. 
     TASK: Rewrite the provided resume to target the job description.
     
-    CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown. Start with { and end with }.
+    CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown.
     
     JSON STRUCTURE:
     {
@@ -34,12 +34,12 @@ export default async function handler(request, response) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [{ parts: [{ text: masterPrompt }] }]
       })
     });
 
     if (!geminiResponse.ok) {
-      throw new Error(`Gemini Tailor Error: ${geminiResponse.status} ${geminiResponse.statusText}`);
+      throw new Error(`Gemini Tailor Error: ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
