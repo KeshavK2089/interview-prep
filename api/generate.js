@@ -4,10 +4,12 @@ export default async function handler(request, response) {
   const { resume, jobDesc } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
-  if (!apiKey) return response.status(500).json({ error: 'Server Config Error: Missing API Key' });
+  if (!apiKey) return response.status(500).json({ error: 'Missing API Key' });
 
-  // Using standard stable model to avoid 403/404 errors
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // FORCED: Using Gemini 2.5 Flash Preview
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  // Hardcoded to 6 questions
   const count = 6; 
 
   const masterPrompt = `
@@ -53,6 +55,7 @@ export default async function handler(request, response) {
 
     const data = await geminiResponse.json();
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    
     text = text.replace(/```json/g, '').replace(/```/g, '');
     const first = text.indexOf('{');
     const last = text.lastIndexOf('}');
