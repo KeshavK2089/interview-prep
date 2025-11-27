@@ -6,8 +6,7 @@ import {
   Lightbulb, Target, Hash, BarChart3, Activity,
   ThumbsUp, ThumbsDown, Building, Globe, Users,
   Sliders, Volume2, StopCircle, Settings, MessageSquare,
-  FileEdit, Wand2, Download, AlertTriangle, UserCheck,
-  BrainCircuit, Layers, CheckCircle2
+  FileEdit, Wand2, Download, AlertTriangle, UserCheck
 } from 'lucide-react';
 
 // --- API Helpers (Calling Secure Backend) ---
@@ -19,7 +18,6 @@ const generateInterviewPrep = async (resume, jobDesc) => {
     body: JSON.stringify({ resume, jobDesc })
   });
   
-  // Guard against HTML errors from server (404/500)
   const contentType = response.headers.get("content-type");
   if (!contentType || !contentType.includes("application/json")) {
     throw new Error("Server connection failed. Please ensure API functions are deployed.");
@@ -37,10 +35,19 @@ const generateTailoredResume = async (resume, jobDesc) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resume, jobDesc })
     });
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+       throw new Error("Server connection failed.");
+    }
+
     const data = await response.json();
-    if (!response.ok) return null;
+    if (!response.ok) throw new Error(data.error || 'Failed to tailor resume');
     return data;
-  } catch (err) { return null; }
+  } catch (err) {
+    console.error("Resume Tailor Error:", err);
+    throw err;
+  }
 };
 
 const getAIFeedback = async (question, answer) => {
@@ -53,7 +60,6 @@ const getAIFeedback = async (question, answer) => {
 };
 
 const getAIVoice = async (text) => {
-  // Fetch blob directly from backend proxy which returns WAV
   const response = await fetch('/api/speak', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -86,18 +92,16 @@ const Logo = ({ onClick }) => (
 const Nav = ({ activeTab, setActiveTab }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const tabs = [
-    { id: 'strategy', label: 'Interview Strategy' },
-    { id: 'resume-info', label: 'Tailored Resume' },
+    { id: 'prep', label: 'Interview Strategy' },
+    { id: 'resume', label: 'Tailored Resume' },
     { id: 'safety', label: 'Privacy' }
   ];
   
-  // Function to handle tab clicks - just sets the active tab
   const handleTabClick = (id) => {
     setActiveTab(id);
     setMobileMenuOpen(false);
   };
 
-  // Logo click explicitly goes home
   const handleLogoClick = () => {
     setActiveTab('home');
   };
@@ -161,17 +165,16 @@ const InputCard = ({ title, icon: Icon, placeholder, value, onChange, colorClass
   </div>
 );
 
+// Helper for safe string rendering
+const renderSafe = (content) => {
+  if (content === null || content === undefined) return '';
+  if (typeof content === 'string') return content;
+  return String(content);
+};
+
 const QuestionCard = ({ item, index }) => {
   const [isOpen, setIsOpen] = useState(false);
-  // Safe Render Helper inline
-  const renderSafe = (content) => {
-    if (content === null || content === undefined) return '';
-    if (typeof content === 'string') return content;
-    return String(content);
-  };
-
   if (!item) return null;
-  
   const getCategoryColor = (cat) => {
     switch(cat?.toLowerCase()) {
       case 'behavioral': return 'bg-purple-100 text-purple-700';
@@ -180,7 +183,6 @@ const QuestionCard = ({ item, index }) => {
       default: return 'bg-slate-100 text-slate-700';
     }
   };
-  
   return (
     <div className="group border border-slate-200 rounded-xl overflow-hidden transition-all duration-300 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-100/50 bg-white">
       <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-start gap-4 p-5 text-left transition-colors">
@@ -197,8 +199,6 @@ const QuestionCard = ({ item, index }) => {
     </div>
   );
 };
-
-// --- COMPLEX UI COMPONENTS ---
 
 const RadarChart = ({ data }) => {
   const validData = useMemo(() => {
@@ -291,11 +291,6 @@ const SkillCloud = ({ skills }) => {
 
 const CompanyIntelCard = ({ intel }) => {
   if (!intel) return null;
-  // Helper
-  const renderSafe = (content) => {
-    if (content === null || content === undefined) return '';
-    return String(content);
-  };
   return (
     <div className="bg-slate-900 text-slate-100 rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-900/20">
       <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
@@ -336,7 +331,6 @@ const CompanyIntelCard = ({ intel }) => {
 
 const ElevatorPitch = ({ pitch }) => {
   if (!pitch) return null;
-  const renderSafe = (content) => String(content || '');
   return (
     <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-8 border border-amber-100 mt-8">
       <div className="flex items-center gap-3 mb-6">
@@ -385,34 +379,36 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
       document.body.removeChild(textArea);
   };
 
-  // Helper
-  const renderSafe = (c) => String(c || '');
-
   const generateResumeText = (data) => {
     if (!data) return '';
     let text = `${renderSafe(data.contact?.name)}\n${renderSafe(data.contact?.details)}\n\n`;
+    
     text += `EDUCATION\n`;
     (data.education || []).forEach(edu => {
         text += `${renderSafe(edu.line)}\n`;
         if(edu.details) text += `${renderSafe(edu.details)}\n`;
         text += `\n`;
     });
+    
     text += `EXPERIENCE\n`;
     (data.experience || []).forEach(exp => {
         text += `${renderSafe(exp.header)}\n`;
         (exp.bullets || []).forEach(bull => text += `• ${renderSafe(bull)}\n`);
         text += `\n`;
     });
+    
     text += `PROJECTS\n`;
     (data.projects || []).forEach(proj => {
         text += `${renderSafe(proj.header)}\n`;
         (proj.bullets || []).forEach(bull => text += `• ${renderSafe(bull)}\n`);
         text += `\n`;
     });
+    
     text += `SKILLS\n`;
     (data.skills || []).forEach(skill => {
       text += `${renderSafe(skill.category)}: ${renderSafe(skill.items)}\n`;
     });
+
     return text;
   };
 
@@ -454,7 +450,7 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
         </div>
       </div>
 
-      {/* Resume Talking Points */}
+      {/* NEW: Resume Talking Points */}
       {tailoredData.resumeTalkingPoints && tailoredData.resumeTalkingPoints.length > 0 && (
         <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
           <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2"><MessageSquare size={20}/> How to Talk About Your Experience</h3>
@@ -472,18 +468,93 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
       {/* Styled Document Preview */}
       <div className="bg-white rounded-sm shadow-lg border border-slate-200 overflow-hidden max-w-[850px] mx-auto text-slate-900 font-sans">
          <div className="p-12 space-y-6">
-            <div className="text-center border-b border-slate-300 pb-6"><h1 className="text-3xl font-serif font-bold mb-2">{renderSafe(tailoredData.contact?.name || 'Candidate Name')}</h1><p className="text-sm text-slate-600 font-medium">{renderSafe(tailoredData.contact?.details || 'Email | Phone | LinkedIn')}</p></div>
-            <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Education</h2>{tailoredData.education?.map((edu, i) => (<div key={i} className="mb-3"><div className="flex justify-between font-bold text-sm"><span>{renderSafe(edu.line.split('|')[1] || edu.line)}</span><span>{renderSafe(edu.line.split('|')[2] || '')}</span></div><div className="flex justify-between text-sm italic mb-1"><span>{renderSafe(edu.line.split('|')[0])}</span><span>{renderSafe(edu.line.split('|')[4] || '')}</span></div><div className="text-xs text-slate-500 hidden">{edu.line}</div> {edu.details && <p className="text-sm text-slate-700">{renderSafe(edu.details)}</p>}</div>))}</div>
-            <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Experience</h2>{tailoredData.experience?.map((exp, i) => (<div key={i} className="mb-4"><div className="flex justify-between font-bold text-sm"><span>{renderSafe(exp.header.split('|')[0])}</span><span>{renderSafe(exp.header.split('|')[2] || '')}</span></div><div className="flex justify-between text-sm italic mb-1"><span>{renderSafe(exp.header.split('|')[1])}</span><span>{renderSafe(exp.header.split('|')[3] || '')}</span></div><ul className="list-disc list-outside ml-4 space-y-1">{exp.bullets?.map((b, j) => (<li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>))}</ul></div>))}</div>
-             {tailoredData.projects && tailoredData.projects.length > 0 && (<div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Projects</h2>{tailoredData.projects.map((proj, i) => (<div key={i} className="mb-3"><div className="flex justify-between font-bold text-sm"><span>{renderSafe(proj.header.split('|')[0])}</span><span>{renderSafe(proj.header.split('|')[2] || '')}</span></div><div className="text-xs italic text-slate-600 mb-1">{renderSafe(proj.header.split('|')[1])}</div><ul className="list-disc list-outside ml-4 space-y-1">{proj.bullets?.map((b, j) => (<li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>))}</ul></div>))}</div>)}
-             <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Skills</h2><div className="space-y-1">{tailoredData.skills?.map((skill, i) => (<div key={i} className="text-sm text-slate-800"><span className="font-bold">{renderSafe(skill.category)}:</span> {renderSafe(skill.items)}</div>))}</div></div>
+            
+            {/* Header */}
+            <div className="text-center border-b border-slate-300 pb-6">
+               <h1 className="text-3xl font-serif font-bold mb-2">{renderSafe(tailoredData.contact?.name || 'Candidate Name')}</h1>
+               <p className="text-sm text-slate-600 font-medium">{renderSafe(tailoredData.contact?.details || 'Email | Phone | LinkedIn')}</p>
+            </div>
+
+            {/* Education */}
+            <div>
+               <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Education</h2>
+               {tailoredData.education?.map((edu, i) => (
+                  <div key={i} className="mb-3">
+                     <div className="flex justify-between font-bold text-sm">
+                        <span>{renderSafe(edu.line.split('|')[1] || edu.line)}</span> {/* School Name */}
+                        <span>{renderSafe(edu.line.split('|')[2] || '')}</span> {/* Location */}
+                     </div>
+                     <div className="flex justify-between text-sm italic mb-1">
+                        <span>{renderSafe(edu.line.split('|')[0])}</span> {/* Degree */}
+                        <span>{renderSafe(edu.line.split('|')[4] || '')}</span> {/* Date */}
+                     </div>
+                     {edu.details && <p className="text-sm text-slate-700">{renderSafe(edu.details)}</p>}
+                  </div>
+               ))}
+            </div>
+
+            {/* Experience */}
+            <div>
+               <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Experience</h2>
+               {tailoredData.experience?.map((exp, i) => (
+                  <div key={i} className="mb-4">
+                     <div className="flex justify-between font-bold text-sm">
+                        <span>{renderSafe(exp.header.split('|')[0])}</span> {/* Role */}
+                        <span>{renderSafe(exp.header.split('|')[2] || '')}</span> {/* Location */}
+                     </div>
+                     <div className="flex justify-between text-sm italic mb-1">
+                        <span>{renderSafe(exp.header.split('|')[1])}</span> {/* Company */}
+                        <span>{renderSafe(exp.header.split('|')[3] || '')}</span> {/* Date */}
+                     </div>
+                     <ul className="list-disc list-outside ml-4 space-y-1">
+                        {exp.bullets?.map((b, j) => (
+                           <li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>
+                        ))}
+                     </ul>
+                  </div>
+               ))}
+            </div>
+
+             {/* Projects */}
+             {tailoredData.projects && tailoredData.projects.length > 0 && (
+                <div>
+                  <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Projects</h2>
+                  {tailoredData.projects.map((proj, i) => (
+                      <div key={i} className="mb-3">
+                        <div className="flex justify-between font-bold text-sm">
+                            <span>{renderSafe(proj.header.split('|')[0])}</span> {/* Title */}
+                            <span>{renderSafe(proj.header.split('|')[2] || '')}</span> {/* Date */}
+                        </div>
+                        <div className="text-xs italic text-slate-600 mb-1">{renderSafe(proj.header.split('|')[1])}</div> {/* Context */}
+                        <ul className="list-disc list-outside ml-4 space-y-1">
+                            {proj.bullets?.map((b, j) => (
+                              <li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>
+                            ))}
+                        </ul>
+                      </div>
+                  ))}
+                </div>
+             )}
+
+             {/* Skills */}
+             <div>
+                <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Skills</h2>
+                <div className="space-y-1">
+                  {tailoredData.skills?.map((skill, i) => (
+                     <div key={i} className="text-sm text-slate-800">
+                        <span className="font-bold">{renderSafe(skill.category)}:</span> {renderSafe(skill.items)}
+                     </div>
+                  ))}
+                </div>
+             </div>
+
          </div>
       </div>
     </div>
   );
 };
 
-// --- PRACTICE SESSION ---
+// --- PRACTICE SESSION (Defined before use) ---
 const PracticeSession = ({ questions, onClose }) => {
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [timer, setTimer] = useState(0);
@@ -647,33 +718,42 @@ const ProductView = () => {
     setResult(null);
     setTailoredResume(null);
     
+    // Split workflow: Generate Strategy first, then Resume separately to avoid timeouts
+    // This allows us to show partial results if one fails, and avoids single-request limits
+    let prepData = null;
+    let resumeData = null;
+
     try {
-      // Sequential Loading
-      const resumeData = await generateTailoredResume(resume, jobDesc)
-        .catch(err => { console.error("Resume Error:", err); return null; });
-      
-      if (resumeData) {
-        setTailoredResume(resumeData);
-      }
+        // 1. Generate Interview Strategy (Priority)
+        prepData = await generateInterviewPrep(resume, jobDesc)
+            .catch(err => { console.error("Prep Error:", err); return null; });
 
-      const prepData = await generateInterviewPrep(resume, jobDesc)
-        .catch(err => { console.error("Prep Error:", err); return null; });
+        if (prepData) {
+            setResult(prepData);
+            setResultTab('prep');
+        }
+    } catch (e) { console.error("Strategy gen failed", e); }
 
-      if (prepData) {
-        setResult(prepData);
-        setResultTab('prep'); // Default to strategy
-      }
+    try {
+        // 2. Generate Resume (Secondary) - Triggered after strategy starts to reduce load
+        // We do this sequentially to prevent rate limiting on the free tier
+        resumeData = await generateTailoredResume(resume, jobDesc)
+             .catch(err => { console.error("Resume Error:", err); return null; });
+        
+        if (resumeData) {
+            setTailoredResume(resumeData);
+            // If strategy failed but resume worked, switch tab
+            if (!prepData) setResultTab('resume');
+        }
+    } catch (e) { console.error("Resume gen failed", e); }
 
-      if (!resumeData && !prepData) {
-        throw new Error("Failed to generate content. Please check your inputs.");
-      }
-
-      setTimeout(() => { resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
-    } catch (err) { 
-      setError(err.message); 
-    } finally { 
-      setLoading(false); 
+    if (!prepData && !resumeData) {
+        setError("Failed to generate content. Please check your inputs and try again.");
+    } else {
+        setTimeout(() => { resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
     }
+    
+    setLoading(false);
   };
 
   return (
