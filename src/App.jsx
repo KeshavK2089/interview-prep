@@ -9,28 +9,52 @@ import {
   FileEdit, Wand2, Download, AlertTriangle, UserCheck
 } from 'lucide-react';
 
-// --- API Helpers ---
+// --- API Helpers (Improved Error Handling) ---
 
 const generateInterviewPrep = async (resume, jobDesc, numQuestions) => {
-  const response = await fetch('/api/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jobDesc, numQuestions })
-  });
-  const data = await response.json();
-  if (!response.ok || data.error) throw new Error(data.error || 'Failed to generate content');
-  return data;
+  try {
+    const response = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume, jobDesc, numQuestions })
+    });
+
+    // Check for non-JSON responses (like 404 or 500 HTML pages)
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      throw new Error(`Server Error (${response.status}): API route not found or crashed.`);
+    }
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to generate prep plan');
+    return data;
+  } catch (err) {
+    console.error("Prep API Error:", err);
+    throw err;
+  }
 };
 
 const generateTailoredResume = async (resume, jobDesc) => {
-  const response = await fetch('/api/tailor', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jobDesc })
-  });
-  const data = await response.json();
-  if (!response.ok || data.error) throw new Error(data.error || 'Failed to tailor resume');
-  return data;
+  try {
+    const response = await fetch('/api/tailor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume, jobDesc })
+    });
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      console.warn("Tailor API likely missing or crashed.");
+      throw new Error("Tailor API unavailable");
+    }
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to tailor resume');
+    return data;
+  } catch (err) {
+    console.error("Tailor API Error:", err);
+    throw err;
+  }
 };
 
 const getAIFeedback = async (question, answer) => {
@@ -303,37 +327,7 @@ const InputCard = ({ title, icon: Icon, placeholder, value, onChange, colorClass
   </div>
 );
 
-// --- QuestionCard (Defined before PracticeSession for safety) ---
-
-const QuestionCard = ({ item, index }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  if (!item) return null;
-  const getCategoryColor = (cat) => {
-    switch(cat?.toLowerCase()) {
-      case 'behavioral': return 'bg-purple-100 text-purple-700';
-      case 'technical': return 'bg-blue-100 text-blue-700';
-      case 'system design': return 'bg-orange-100 text-orange-700';
-      default: return 'bg-slate-100 text-slate-700';
-    }
-  };
-  return (
-    <div className="group border border-slate-200 rounded-xl overflow-hidden transition-all duration-300 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-100/50 bg-white">
-      <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-start gap-4 p-5 text-left transition-colors">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${getCategoryColor(item.category)}`}>{item.category}</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100">{item.difficulty}</span>
-          </div>
-          <h4 className={`font-medium text-lg leading-snug transition-colors duration-300 ${isOpen ? 'text-sky-600' : 'text-slate-900'}`}>{item.question}</h4>
-        </div>
-        <div className={`p-2 rounded-full transition-all duration-300 ${isOpen ? 'bg-sky-100 rotate-90 text-sky-600' : 'text-slate-300 group-hover:bg-slate-50'}`}><ChevronRight size={18} /></div>
-      </button>
-      {isOpen && (<div className="px-5 pb-6 pt-2 animate-in slide-in-from-top-2 duration-300"><div className="mb-6 p-4 bg-slate-50 rounded-lg border-l-4 border-slate-300"><p className="text-sm text-slate-600 italic"><span className="font-bold not-italic text-slate-900 mr-2">Goal:</span> {typeof item.intent === 'string' ? item.intent : ''}</p></div><div className="grid md:grid-cols-3 gap-4"><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Target</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.situation}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Action</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.action}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Result</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.result}</p></div></div></div>)}
-    </div>
-  );
-};
-
-// --- Feature Components ---
+// --- Resume Tailor Component ---
 
 const ResumeTailor = ({ originalResume, tailoredData }) => {
   const [copied, setCopied] = useState(false);
@@ -353,7 +347,7 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
     element.click();
   };
 
-  if (!tailoredData) return <div className="text-center p-8 text-slate-400">No tailored resume generated yet.</div>;
+  if (!tailoredData) return <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-xl border border-slate-100 mt-8">Resume tailoring was skipped or failed. Focusing on interview prep.</div>;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -424,6 +418,7 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
   );
 };
 
+// --- Practice Mode Component ---
 const PracticeSession = ({ questions, onClose }) => {
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [timer, setTimer] = useState(0);
@@ -508,6 +503,34 @@ const PracticeSession = ({ questions, onClose }) => {
   );
 };
 
+const QuestionCard = ({ item, index }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  if (!item) return null;
+  const getCategoryColor = (cat) => {
+    switch(cat?.toLowerCase()) {
+      case 'behavioral': return 'bg-purple-100 text-purple-700';
+      case 'technical': return 'bg-blue-100 text-blue-700';
+      case 'system design': return 'bg-orange-100 text-orange-700';
+      default: return 'bg-slate-100 text-slate-700';
+    }
+  };
+  return (
+    <div className="group border border-slate-200 rounded-xl overflow-hidden transition-all duration-300 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-100/50 bg-white">
+      <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-start gap-4 p-5 text-left transition-colors">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${getCategoryColor(item.category)}`}>{item.category}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100">{item.difficulty}</span>
+          </div>
+          <h4 className={`font-medium text-lg leading-snug transition-colors duration-300 ${isOpen ? 'text-sky-600' : 'text-slate-900'}`}>{item.question}</h4>
+        </div>
+        <div className={`p-2 rounded-full transition-all duration-300 ${isOpen ? 'bg-sky-100 rotate-90 text-sky-600' : 'text-slate-300 group-hover:bg-slate-50'}`}><ChevronRight size={18} /></div>
+      </button>
+      {isOpen && (<div className="px-5 pb-6 pt-2 animate-in slide-in-from-top-2 duration-300"><div className="mb-6 p-4 bg-slate-50 rounded-lg border-l-4 border-slate-300"><p className="text-sm text-slate-600 italic"><span className="font-bold not-italic text-slate-900 mr-2">Goal:</span> {typeof item.intent === 'string' ? item.intent : ''}</p></div><div className="grid md:grid-cols-3 gap-4"><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Target</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.situation}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Action</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.action}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Result</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.result}</p></div></div></div>)}
+    </div>
+  );
+};
+
 const ResearchView = () => (<div className="max-w-4xl mx-auto py-12 px-6 animate-in fade-in slide-in-from-bottom-4 duration-500"><div className="text-center mb-16"><div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-bold uppercase tracking-wider mb-4"><Cpu size={14} /> Algorithm Beta 2.5</div><h2 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">How we analyze fit.</h2><p className="text-lg text-slate-600 max-w-2xl mx-auto">Our model decomposes your resume into semantic vectors to understand not just keywords, but underlying capabilities.</p></div><div className="grid md:grid-cols-3 gap-8 mb-20 relative"><div className="hidden md:block absolute top-12 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-slate-200 to-transparent -z-10"></div>{[{ icon: FileText, title: "Tokenization", desc: "Parsing unstructured text from resumes and JDs into structured skill ontologies.", color: "text-blue-500", bg: "bg-blue-50" }, { icon: Network, title: "Semantic Mapping", desc: "Mapping your experience against a high-dimensional vector space of job requirements.", color: "text-purple-500", bg: "bg-purple-50" }, { icon: Zap, title: "Gap Analysis", desc: "Identifying the precise distance between candidate capabilities and role demands.", color: "text-pink-500", bg: "bg-pink-50" }].map((item, i) => (<div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow relative"><div className={`w-12 h-12 ${item.bg} ${item.color} rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0 shadow-inner`}><item.icon size={24} /></div><h3 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h3><p className="text-slate-500 text-sm leading-relaxed">{item.desc}</p></div>))}</div></div>);
 const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-in fade-in slide-in-from-bottom-4 duration-500"><div className="text-center mb-16"><div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-4"><Shield size={14} /> Enterprise Grade</div><h2 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">Your data is yours.</h2><p className="text-lg text-slate-600">We believe interview preparation shouldn't come at the cost of privacy.</p></div><div className="space-y-6">{[{ icon: Lock, title: "Zero Retention Policy", desc: "Your resume and job descriptions are processed in memory and immediately discarded." }, { icon: Eye, title: "No Model Training", desc: "We do not use your inputs to train our public models. Your career history remains private to you." }, { icon: Server, title: "Encrypted Transport", desc: "All data sent between your browser and our analysis engine is encrypted via TLS 1.3 standards." }].map((item, i) => (<div key={i} className="flex gap-6 p-6 rounded-2xl bg-white border border-slate-100 hover:border-slate-200 transition-colors"><div className="flex-shrink-0 w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-900"><item.icon size={24} strokeWidth={1.5} /></div><div><h3 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h3><p className="text-slate-500 leading-relaxed">{item.desc}</p></div></div>))}</div></div>);
 
@@ -532,21 +555,54 @@ const ProductView = () => {
     setResult(null);
     setTailoredResume(null);
     
+    // Track errors but try to continue if one succeeds
+    let prepError = null;
+    let resumeError = null;
+
     try {
-      const [prepData, resumeData] = await Promise.all([
-        generateInterviewPrep(resume, jobDesc, numQuestions),
-        generateTailoredResume(resume, jobDesc)
-      ]);
-
-      if (prepData.error) { throw new Error(prepData.error); }
+      // Create independent promises that handle their own errors
+      const prepPromise = generateInterviewPrep(resume, jobDesc, numQuestions)
+        .catch(err => {
+          console.error("Prep Error:", err);
+          prepError = err.message;
+          return null; // Return null on failure
+        });
       
-      setResult(prepData);
-      setTailoredResume(resumeData);
-      setResultTab('resume'); 
+      const resumePromise = generateTailoredResume(resume, jobDesc)
+        .catch(err => {
+          console.error("Resume Error:", err);
+          resumeError = err.message;
+          return null; // Return null on failure
+        });
 
-      setTimeout(() => { resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+      // Wait for both, but neither will throw now
+      const [prepData, resumeData] = await Promise.all([prepPromise, resumePromise]);
+
+      // Handle successful data
+      if (prepData) {
+        setResult(prepData);
+      }
+      
+      if (resumeData) {
+        setTailoredResume(resumeData);
+        setResultTab('resume'); 
+      } else if (prepData) {
+        // Fallback to prep tab if resume failed
+        setResultTab('prep'); 
+      }
+
+      // If BOTH failed, then show a main error
+      if (!prepData && !resumeData) {
+        const errorMsg = prepError || resumeError || "Generation failed. Please try again.";
+        setError(errorMsg);
+      } else {
+        // Scroll to results if at least one succeeded
+        setTimeout(() => { resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+      }
+
     } catch (err) { 
-      setError("We couldn't generate your plan. Please check your inputs and try again."); 
+      console.error("Critical Error:", err);
+      setError("An unexpected error occurred."); 
     } finally { 
       setLoading(false); 
     }
@@ -578,7 +634,7 @@ const ProductView = () => {
         {error && (<div className="flex items-center gap-2 text-pink-600 bg-pink-50 px-4 py-2 rounded-lg text-sm border border-pink-100"><AlertCircle size={16} />{error}</div>)}
       </div>
 
-      {result && (
+      {(result || tailoredResume) && (
         <div ref={resultRef} className="space-y-8 animate-in fade-in slide-in-from-bottom-10 duration-700 pb-20">
           <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
           
@@ -589,9 +645,11 @@ const ProductView = () => {
             </div>
           </div>
 
-          {resultTab === 'resume' ? (
+          {resultTab === 'resume' && tailoredResume && (
             <ResumeTailor originalResume={resume} tailoredData={tailoredResume} />
-          ) : (
+          )}
+
+          {resultTab === 'prep' && result && (
             <div className="space-y-16">
               <div><div className="flex items-center gap-3 mb-8"><BarChart3 className="text-sky-500" size={28} /><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Role Intelligence</h2></div><div className="grid md:grid-cols-3 gap-8"><div className="md:col-span-1 bg-white p-6 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col items-center"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-6">Candidate Fit Dimension</h3><RadarChart data={result.dimensions} /></div><div className="md:col-span-2 space-y-6"><div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm"><VibeEqualizer vibe={result.roleVibe} /></div><div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm"><div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Skill Match Network</h3><div className="flex gap-2 text-[10px] font-bold uppercase tracking-wider"><span className="flex items-center gap-1 text-emerald-600"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Match</span><span className="flex items-center gap-1 text-amber-600"><div className="w-2 h-2 rounded-full bg-amber-500"></div> Partial</span></div></div><SkillCloud skills={result.skillAnalysis} /></div></div></div></div>
               
