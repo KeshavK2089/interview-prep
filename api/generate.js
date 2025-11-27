@@ -10,11 +10,11 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing.' });
   }
 
-  // FIXED: Reverted to 'gemini-pro' (1.0) which is globally available and resolves 404s
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+  // Using gemini-1.5-flash as it is the most stable current model.
+  // If this 404s, your key might lack access, but it's the standard for new keys.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const count = numQuestions || 7; 
 
-  // Merged System Prompt (Gemini 1.0 doesn't support separate system instructions well)
   const masterPrompt = `
     You are an elite executive career coach. Analyze the Resume and Job Description.
     
@@ -22,7 +22,7 @@ export default async function handler(request, response) {
     
     CRITICAL OUTPUT RULE: 
     Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json. 
-    Do not include any conversational text. Start with { and end with }.
+    Start with { and end with }.
 
     JSON STRUCTURE:
     {
@@ -73,30 +73,44 @@ export default async function handler(request, response) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: masterPrompt }] }]
-        // Note: No generationConfig for JSON mode here, we parse manually below
       })
     });
 
     if (!geminiResponse.ok) {
-      throw new Error(`Gemini API Error: ${geminiResponse.statusText}`);
+      throw new Error(`Gemini API Error: ${geminiResponse.status} ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
-    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
+    // Check if the AI refused to answer (Safety Filters)
+    if (!data.candidates || data.candidates.length === 0) {
+        throw new Error("AI returned no content. It might have been flagged by safety filters.");
+    }
+
+    let textResponse = data.candidates[0].content?.parts?.[0]?.text || "{}";
     
-    // --- MANUAL CLEANER (Fixes 1.0 formatting issues) ---
-    // 1. Remove markdown
+    // --- ADVANCED CLEANER ---
+    // 1. Remove markdown fences
     textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
-    // 2. Extract JSON using Regex (Finds the first { and last })
-    const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      textResponse = jsonMatch[0];
+    
+    // 2. Surgical Extraction: Find the VERY FIRST '{' and the VERY LAST '}'
+    const firstBrace = textResponse.indexOf('{');
+    const lastBrace = textResponse.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1) {
+        textResponse = textResponse.substring(firstBrace, lastBrace + 1);
+    } else {
+        throw new Error("AI response did not contain valid JSON structure");
     }
     // --- END CLEANER ---
 
-    return response.status(200).json(JSON.parse(textResponse));
+    // Parse
+    const parsedData = JSON.parse(textResponse);
+    return response.status(200).json(parsedData);
+
   } catch (error) {
     console.error("Generate API Failed:", error);
-    return response.status(500).json({ error: 'Failed to generate plan. Please try again.' });
+    // Send the ACTUAL error message to the frontend for easier debugging
+    return response.status(500).json({ error: error.message || 'Server Error' });
   }
 }
