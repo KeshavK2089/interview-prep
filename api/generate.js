@@ -7,11 +7,11 @@ export default async function handler(request, response) {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    console.error("API Key missing in environment variables");
-    return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing in Vercel Settings.' });
+    return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing.' });
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // STABLE MODEL URL
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${apiKey}`;
   const count = numQuestions || 7; 
 
   const systemPrompt = `You are an elite executive career coach. 
@@ -76,36 +76,25 @@ export default async function handler(request, response) {
     });
 
     if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error("Gemini API Error Details:", errorText);
-      throw new Error(`Gemini API Error: ${geminiResponse.status} ${geminiResponse.statusText}`);
+      throw new Error(`Gemini API Error: ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
-    // --- ROBUST CLEANING START ---
+    // Aggressive JSON Cleaning
     if (textResponse) {
-      // 1. Remove markdown code blocks
       textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
-      
-      // 2. Find the first '{' and the last '}' to strip any extra conversational text
       const firstOpen = textResponse.indexOf('{');
       const lastClose = textResponse.lastIndexOf('}');
-      
       if (firstOpen !== -1 && lastClose !== -1) {
         textResponse = textResponse.substring(firstOpen, lastClose + 1);
       }
     }
-    // --- ROBUST CLEANING END ---
 
-    // Parse strictly
-    const jsonResponse = JSON.parse(textResponse);
-    return response.status(200).json(jsonResponse);
-
+    return response.status(200).json(JSON.parse(textResponse));
   } catch (error) {
     console.error("Generate API Failed:", error);
-    // Return the actual error message to the frontend so we can debug
     return response.status(500).json({ error: error.message || 'Failed to parse AI response' });
   }
 }
