@@ -10,91 +10,93 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing.' });
   }
 
-  // FIXED: Using the universal alias 'gemini-1.5-flash'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // FIXED: Reverted to 'gemini-pro' (1.0) which is globally available and resolves 404s
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
   const count = numQuestions || 7; 
 
-  const systemPrompt = `You are an elite executive career coach. 
-  TASK: Analyze the Resume and Job Description.
-  OUTPUT FORMAT: Return a SINGLE, VALID JSON object. 
-  CRITICAL: Do not write ANY text outside the JSON object. Do not use markdown formatting.
-  
-  INSTRUCTION: Generate exactly ${count} diverse questions.
+  // Merged System Prompt (Gemini 1.0 doesn't support separate system instructions well)
+  const masterPrompt = `
+    You are an elite executive career coach. Analyze the Resume and Job Description.
+    
+    INSTRUCTION: Generate exactly ${count} diverse questions.
+    
+    CRITICAL OUTPUT RULE: 
+    Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json. 
+    Do not include any conversational text. Start with { and end with }.
 
-  JSON STRUCTURE:
-  {
-    "compatibilityScore": number (0-100),
-    "dimensions": [
-      { "label": "Technical", "score": number },
-      { "label": "Experience", "score": number },
-      { "label": "Leadership", "score": number },
-      { "label": "Communication", "score": number },
-      { "label": "Culture Fit", "score": number }
-    ],
-    "roleAnalysis": {
-      "level": "Entry/Mid/Senior/Lead/Executive",
-      "coreFocus": "String",
-      "techStack": ["String"]
-    },
-    "roleVibe": {
-      "scope": number, "social": number, "structure": number, "techNature": number
-    },
-    "companyIntel": {
-      "name": "String",
-      "missionKeywords": ["String"],
-      "keyChallenges": ["String"],
-      "hiringManagerPainPoints": ["String", "String"],
-      "talkingPoints": ["String"]
-    },
-    "elevatorPitch": {
-      "hook": "String",
-      "body": "String",
-      "close": "String"
-    },
-    "skillAnalysis": [
-      { "skill": "String", "status": "match" | "partial" | "missing" }
-    ],
-    "strategicAdvice": "String",
-    "questions": [
-       { "id": number, "category": "String", "difficulty": "String", "question": "String", "intent": "String", "starGuide": { "situation": "String", "action": "String", "result": "String" } }
-    ]
-  }
-  
-  VALIDATION: If input is nonsense, return { "error": "Invalid input." }`;
+    JSON STRUCTURE:
+    {
+      "compatibilityScore": number (0-100),
+      "dimensions": [
+        { "label": "Technical", "score": number },
+        { "label": "Experience", "score": number },
+        { "label": "Leadership", "score": number },
+        { "label": "Communication", "score": number },
+        { "label": "Culture Fit", "score": number }
+      ],
+      "roleAnalysis": {
+        "level": "Entry/Mid/Senior/Lead/Executive",
+        "coreFocus": "String",
+        "techStack": ["String"]
+      },
+      "roleVibe": {
+        "scope": number, "social": number, "structure": number, "techNature": number
+      },
+      "companyIntel": {
+        "name": "String",
+        "missionKeywords": ["String"],
+        "keyChallenges": ["String"],
+        "hiringManagerPainPoints": ["String"],
+        "talkingPoints": ["String"]
+      },
+      "elevatorPitch": {
+        "hook": "String",
+        "body": "String",
+        "close": "String"
+      },
+      "skillAnalysis": [
+        { "skill": "String", "status": "match" | "partial" | "missing" }
+      ],
+      "strategicAdvice": "String",
+      "questions": [
+         { "id": number, "category": "String", "difficulty": "String", "question": "String", "intent": "String", "starGuide": { "situation": "String", "action": "String", "result": "String" } }
+      ]
+    }
 
-  const userPrompt = `RESUME:\n${resume}\n\nJOB DESCRIPTION:\n${jobDesc}`;
+    RESUME: ${resume}
+    JOB DESCRIPTION: ${jobDesc}
+  `;
 
   try {
     const geminiResponse = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: userPrompt }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { responseMimeType: "application/json" }
+        contents: [{ parts: [{ text: masterPrompt }] }]
+        // Note: No generationConfig for JSON mode here, we parse manually below
       })
     });
 
     if (!geminiResponse.ok) {
-      console.error(`Gemini API Failed. Status: ${geminiResponse.status}`);
       throw new Error(`Gemini API Error: ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
-    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     
-    if (textResponse) {
-      textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
-      const firstOpen = textResponse.indexOf('{');
-      const lastClose = textResponse.lastIndexOf('}');
-      if (firstOpen !== -1 && lastClose !== -1) {
-        textResponse = textResponse.substring(firstOpen, lastClose + 1);
-      }
+    // --- MANUAL CLEANER (Fixes 1.0 formatting issues) ---
+    // 1. Remove markdown
+    textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
+    // 2. Extract JSON using Regex (Finds the first { and last })
+    const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      textResponse = jsonMatch[0];
     }
+    // --- END CLEANER ---
 
     return response.status(200).json(JSON.parse(textResponse));
   } catch (error) {
     console.error("Generate API Failed:", error);
-    return response.status(500).json({ error: error.message || 'Failed to parse AI response' });
+    return response.status(500).json({ error: 'Failed to generate plan. Please try again.' });
   }
 }
