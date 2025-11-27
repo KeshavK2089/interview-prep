@@ -181,12 +181,11 @@ const CompanyIntelCard = ({ intel }) => {
       </div>
       <div className="grid md:grid-cols-2 gap-8">
         <div className="space-y-6">
-          {/* NEW: Pain Points Section - The "Why they are hiring" */}
           <div>
             <h4 className="flex items-center gap-2 text-xs font-bold text-red-400 uppercase tracking-wider mb-3"><AlertTriangle size={14} /> Hiring Manager's Pain Points</h4>
             <ul className="space-y-3">
               {(intel.hiringManagerPainPoints || intel.keyChallenges || []).map((pain, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-slate-300"><span className="mt-1.5 w-1 h-1 rounded-full bg-red-500 shrink-0"></span>{pain}</li>
+                <li key={i} className="flex items-start gap-2 text-sm text-slate-300"><span className="mt-1.5 w-1 h-1 rounded-full bg-red-500 shrink-0"></span>{typeof pain === 'string' ? pain : JSON.stringify(pain)}</li>
               ))}
             </ul>
           </div>
@@ -194,7 +193,7 @@ const CompanyIntelCard = ({ intel }) => {
             <h4 className="flex items-center gap-2 text-xs font-bold text-pink-400 uppercase tracking-wider mb-3"><Globe size={14} /> Mission Keywords</h4>
             <div className="flex flex-wrap gap-2">
               {(intel.missionKeywords || []).map((kw, i) => (
-                <span key={i} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">#{kw}</span>
+                <span key={i} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">#{typeof kw === 'string' ? kw : ''}</span>
               ))}
             </div>
           </div>
@@ -203,7 +202,7 @@ const CompanyIntelCard = ({ intel }) => {
           <h4 className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-4"><Users size={14} /> "Insider" Talking Points</h4>
           <div className="space-y-4">
             {(intel.talkingPoints || []).map((point, i) => (
-              <div key={i} className="flex gap-3"><div className="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold font-mono">{i + 1}</div><p className="text-sm text-slate-300 leading-relaxed">{point}</p></div>
+              <div key={i} className="flex gap-3"><div className="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold font-mono">{i + 1}</div><p className="text-sm text-slate-300 leading-relaxed">{typeof point === 'string' ? point : JSON.stringify(point)}</p></div>
             ))}
           </div>
         </div>
@@ -212,7 +211,6 @@ const CompanyIntelCard = ({ intel }) => {
   );
 };
 
-// --- New Component: Elevator Pitch ---
 const ElevatorPitch = ({ pitch }) => {
   if (!pitch) return null;
   return (
@@ -225,9 +223,9 @@ const ElevatorPitch = ({ pitch }) => {
         </div>
       </div>
       <div className="space-y-4 text-amber-900/80 leading-relaxed">
-        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Hook:</span> {pitch.hook}</p>
-        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Value:</span> {pitch.body}</p>
-        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Close:</span> {pitch.close}</p>
+        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Hook:</span> {typeof pitch.hook === 'string' ? pitch.hook : ''}</p>
+        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Value:</span> {typeof pitch.body === 'string' ? pitch.body : ''}</p>
+        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Close:</span> {typeof pitch.close === 'string' ? pitch.close : ''}</p>
       </div>
       <div className="mt-6 bg-white/60 p-4 rounded-xl border border-amber-100 text-sm italic text-amber-800">
         "Read this aloud 5 times. Memorize the flow, not just the words."
@@ -236,7 +234,7 @@ const ElevatorPitch = ({ pitch }) => {
   );
 };
 
-// --- UI Components (Restored) ---
+// --- Core UI Components ---
 
 const Logo = ({ onClick }) => (
   <button onClick={onClick} className="flex items-center gap-2 font-bold text-xl tracking-tighter text-slate-900 hover:opacity-80 transition-opacity">
@@ -305,7 +303,37 @@ const InputCard = ({ title, icon: Icon, placeholder, value, onChange, colorClass
   </div>
 );
 
-// --- Resume Tailor Component ---
+// --- QuestionCard (Defined before PracticeSession for safety) ---
+
+const QuestionCard = ({ item, index }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  if (!item) return null;
+  const getCategoryColor = (cat) => {
+    switch(cat?.toLowerCase()) {
+      case 'behavioral': return 'bg-purple-100 text-purple-700';
+      case 'technical': return 'bg-blue-100 text-blue-700';
+      case 'system design': return 'bg-orange-100 text-orange-700';
+      default: return 'bg-slate-100 text-slate-700';
+    }
+  };
+  return (
+    <div className="group border border-slate-200 rounded-xl overflow-hidden transition-all duration-300 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-100/50 bg-white">
+      <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-start gap-4 p-5 text-left transition-colors">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${getCategoryColor(item.category)}`}>{item.category}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100">{item.difficulty}</span>
+          </div>
+          <h4 className={`font-medium text-lg leading-snug transition-colors duration-300 ${isOpen ? 'text-sky-600' : 'text-slate-900'}`}>{item.question}</h4>
+        </div>
+        <div className={`p-2 rounded-full transition-all duration-300 ${isOpen ? 'bg-sky-100 rotate-90 text-sky-600' : 'text-slate-300 group-hover:bg-slate-50'}`}><ChevronRight size={18} /></div>
+      </button>
+      {isOpen && (<div className="px-5 pb-6 pt-2 animate-in slide-in-from-top-2 duration-300"><div className="mb-6 p-4 bg-slate-50 rounded-lg border-l-4 border-slate-300"><p className="text-sm text-slate-600 italic"><span className="font-bold not-italic text-slate-900 mr-2">Goal:</span> {typeof item.intent === 'string' ? item.intent : ''}</p></div><div className="grid md:grid-cols-3 gap-4"><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Target</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.situation}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Action</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.action}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Result</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.result}</p></div></div></div>)}
+    </div>
+  );
+};
+
+// --- Feature Components ---
 
 const ResumeTailor = ({ originalResume, tailoredData }) => {
   const [copied, setCopied] = useState(false);
@@ -335,10 +363,10 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
           <div className="relative w-24 h-24 flex items-center justify-center">
             <svg className="transform -rotate-90 w-full h-full">
               <circle cx="48" cy="48" r="40" stroke="rgba(255,255,255,0.1)" strokeWidth="8" fill="transparent" />
-              <circle cx="48" cy="48" r="40" stroke="#4ade80" strokeWidth="8" fill="transparent" strokeDasharray={251} strokeDashoffset={251 - (tailoredData.atsScore / 100) * 251} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
+              <circle cx="48" cy="48" r="40" stroke="#4ade80" strokeWidth="8" fill="transparent" strokeDasharray={251} strokeDashoffset={251 - ((tailoredData.atsScore || 85) / 100) * 251} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
             </svg>
             <div className="absolute flex flex-col items-center">
-              <span className="text-2xl font-bold">{tailoredData.atsScore}%</span>
+              <span className="text-2xl font-bold">{tailoredData.atsScore || 85}%</span>
               <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">ATS Score</span>
             </div>
           </div>
@@ -396,7 +424,6 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
   );
 };
 
-// --- Practice Mode Component ---
 const PracticeSession = ({ questions, onClose }) => {
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [timer, setTimer] = useState(0);
@@ -477,34 +504,6 @@ const PracticeSession = ({ questions, onClose }) => {
           {showHint ? (<div className="w-full max-w-3xl bg-white p-8 rounded-2xl text-left border border-sky-100 shadow-xl shadow-sky-100/50 animate-in slide-in-from-bottom-5 ring-4 ring-sky-50"><h4 className="font-bold text-sky-900 mb-4 flex items-center gap-2 text-lg"><Lightbulb size={20} className="text-sky-500" /> Strategic Approach</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm"><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Situation</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.situation}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Action</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.action}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Result</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.result}</p></div></div></div>) : (<button onClick={() => setShowHint(true)} className="text-slate-400 hover:text-sky-600 text-sm font-medium transition-colors flex items-center gap-2 mx-auto block"><Eye size={16} /> Reveal Strategy Hints</button>)}
         </div>
       </div>
-    </div>
-  );
-};
-
-const QuestionCard = ({ item, index }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  if (!item) return null;
-  const getCategoryColor = (cat) => {
-    switch(cat?.toLowerCase()) {
-      case 'behavioral': return 'bg-purple-100 text-purple-700';
-      case 'technical': return 'bg-blue-100 text-blue-700';
-      case 'system design': return 'bg-orange-100 text-orange-700';
-      default: return 'bg-slate-100 text-slate-700';
-    }
-  };
-  return (
-    <div className="group border border-slate-200 rounded-xl overflow-hidden transition-all duration-300 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-100/50 bg-white">
-      <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-start gap-4 p-5 text-left transition-colors">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${getCategoryColor(item.category)}`}>{item.category}</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100">{item.difficulty}</span>
-          </div>
-          <h4 className={`font-medium text-lg leading-snug transition-colors duration-300 ${isOpen ? 'text-sky-600' : 'text-slate-900'}`}>{item.question}</h4>
-        </div>
-        <div className={`p-2 rounded-full transition-all duration-300 ${isOpen ? 'bg-sky-100 rotate-90 text-sky-600' : 'text-slate-300 group-hover:bg-slate-50'}`}><ChevronRight size={18} /></div>
-      </button>
-      {isOpen && (<div className="px-5 pb-6 pt-2 animate-in slide-in-from-top-2 duration-300"><div className="mb-6 p-4 bg-slate-50 rounded-lg border-l-4 border-slate-300"><p className="text-sm text-slate-600 italic"><span className="font-bold not-italic text-slate-900 mr-2">Goal:</span> {item.intent}</p></div><div className="grid md:grid-cols-3 gap-4"><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Target</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.situation}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Action</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.action}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Result</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.result}</p></div></div></div>)}
     </div>
   );
 };
