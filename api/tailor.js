@@ -3,24 +3,24 @@ export default async function handler(request, response) {
 
   const { resume, jobDesc } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
-  
-  // FORCED: Using Gemini 2.5 Flash Preview
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
   const prompt = `
     ROLE: Master executive resume writer.
-    TASK: Rewrite the provided resume to target the job description.
     
-    STRICT FORMATTING (Keshav-Resume Style):
-    1. NO SUMMARY.
-    2. Header: Name (Line 1), Contact (Line 2).
-    3. Order: Education, Experience, Projects, Skills.
-    4. Format Experience: "Role | Company | Location | Date"
-    
+    *** SECURITY GATEKEEPER ***
+    First, analyze the input text.
+    If the inputs are clearly NOT a professional resume or job description (random text, jargon, too short), 
+    RETURN ONLY THIS JSON:
+    { "error": "Invalid input detected. Please paste a real resume." }
+    *** END GATEKEEPER ***
+
+    TASK: Rewrite resume to target job description.
+    RULES: No Summary. Header: Name, then Contact. Order: Education, Experience, Projects, Skills.
+    FORMAT: Experience header "Role | Company | Location | Date".
     OUTPUT: JSON object only.
     
-    JSON STRUCTURE:
-    {
+    JSON STRUCTURE: {
       "atsScore": number (0-100),
       "contact": { "name": "String", "details": "Email | Phone | LinkedIn" },
       "education": [ { "line": "String", "details": "String" } ],
@@ -29,7 +29,6 @@ export default async function handler(request, response) {
       "skills": [ { "category": "String", "items": "String" } ],
       "resumeTalkingPoints": [ { "role": "String", "script": "String" } ]
     }
-
     ORIGINAL RESUME: ${resume}
     TARGET JOB DESCRIPTION: ${jobDesc}
   `;
