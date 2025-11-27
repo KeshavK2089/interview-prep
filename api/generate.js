@@ -4,18 +4,28 @@ export default async function handler(request, response) {
   const { resume, jobDesc } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
-  if (!apiKey) return response.status(500).json({ error: 'Missing API Key' });
+  if (!apiKey) return response.status(500).json({ error: 'Server Config Error: Missing API Key' });
 
-  // FORCED: Using Gemini 2.5 Flash Preview
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-  
-  // Hardcoded to 6 questions
   const count = 6; 
 
   const masterPrompt = `
     ROLE: You are an elite executive career coach.
     TASK: Analyze the Resume and Job Description.
-    INSTRUCTION: Generate exactly ${count} diverse questions.
+    
+    *** SECURITY GATEKEEPER ***
+    First, analyze the input text. 
+    If the "RESUME" or "JOB DESCRIPTION" content appears to be:
+    1. Gibberish/Random characters (e.g. "asdfasdf")
+    2. Completely unrelated (e.g. a cooking recipe, code snippet, or song lyrics)
+    3. Too short to be useful (less than 2-3 sentences of actual content)
+    
+    THEN RETURN ONLY THIS JSON:
+    { "error": "Input invalid. Please provide a real resume and job description text." }
+    
+    *** END GATEKEEPER ***
+
+    INSTRUCTION: If inputs are valid, generate exactly ${count} diverse questions.
     CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown.
     
     JSON STRUCTURE:
