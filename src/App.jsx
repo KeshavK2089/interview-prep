@@ -6,43 +6,73 @@ import {
   Lightbulb, Target, Hash, BarChart3, Activity,
   ThumbsUp, ThumbsDown, Building, Globe, Users,
   Sliders, Settings, MessageSquare,
-  FileEdit, Wand2, Download, AlertTriangle, UserCheck
+  FileEdit, Wand2, Download, AlertTriangle, UserCheck, Volume2, StopCircle
 } from 'lucide-react';
 
 // --- API Helpers ---
 
 const generateInterviewPrep = async (resume, jobDesc, numQuestions) => {
-  const response = await fetch('/api/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jobDesc, numQuestions })
-  });
-  
-  const contentType = response.headers.get("content-type");
-  if (!contentType || !contentType.includes("application/json")) {
-    throw new Error("Server Error: API route not found or timed out.");
-  }
+  try {
+    const response = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume, jobDesc, numQuestions })
+    });
+    
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      throw new Error("Server Error: The backend API returned HTML instead of JSON. Check your Vercel logs.");
+    }
 
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Failed to generate prep plan');
-  return data;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to generate prep plan');
+    return data;
+  } catch (err) {
+    console.error("Prep API Error:", err);
+    throw err;
+  }
 };
 
 const generateTailoredResume = async (resume, jobDesc) => {
-  const response = await fetch('/api/tailor', {
+  try {
+    const response = await fetch('/api/tailor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume, jobDesc })
+    });
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      console.warn("Tailor API not found or returned invalid data");
+      return null;
+    }
+
+    const data = await response.json();
+    if (!response.ok) return null;
+    return data;
+  } catch (err) {
+    console.error("Resume Tailor ignored error:", err);
+    return null;
+  }
+};
+
+const getAIFeedback = async (question, answer) => {
+  const response = await fetch('/api/feedback', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jobDesc })
+    body: JSON.stringify({ question, answer })
   });
+  return await response.json();
+};
 
-  const contentType = response.headers.get("content-type");
-  if (!contentType || !contentType.includes("application/json")) {
-    throw new Error("Tailor API unavailable");
-  }
-
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Failed to tailor resume');
-  return data;
+const getAIVoice = async (text) => {
+  const response = await fetch('/api/speak', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+  if (!response.ok) throw new Error('Voice generation failed');
+  return await response.blob();
 };
 
 // --- Visualization Components ---
@@ -245,7 +275,7 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
     element.click();
   };
 
-  if (!tailoredData) return <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-xl border border-slate-100 mt-8">Resume tailoring failed. Please try again.</div>;
+  if (!tailoredData) return <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-xl border border-slate-100 mt-8">Resume tailoring was skipped or failed. Focusing on interview prep.</div>;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -268,20 +298,134 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
           </div>
         </div>
         <div className="flex gap-3">
-          <button onClick={handleCopy} className="flex items-center gap-2 px-5 py-3 bg-white/10 text-white rounded-full font-medium hover:bg-white/20 transition-all active:scale-95 border border-white/10">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? 'Copied' : 'Copy Text'}</button>
-          <button onClick={handleDownload} className="flex items-center gap-2 px-5 py-3 bg-white text-slate-900 rounded-full font-medium hover:bg-slate-100 transition-all active:scale-95"><Download size={18} /> Download</button>
+          <button 
+            onClick={handleCopy}
+            className="flex items-center gap-2 px-5 py-3 bg-white/10 text-white rounded-full font-medium hover:bg-white/20 transition-all active:scale-95 border border-white/10"
+          >
+            {copied ? <Check size={18} /> : <Copy size={18} />}
+            {copied ? 'Copied' : 'Copy Text'}
+          </button>
+          <button 
+            onClick={handleDownload}
+            className="flex items-center gap-2 px-5 py-3 bg-white text-slate-900 rounded-full font-medium hover:bg-slate-100 transition-all active:scale-95"
+          >
+            <Download size={18} /> Download
+          </button>
         </div>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
-        <div className="bg-purple-50 p-5 rounded-xl border border-purple-100"><h4 className="font-bold text-purple-900 mb-2 flex items-center gap-2"><Wand2 size={16}/> Burstiness Check</h4><p className="text-sm text-purple-800/80">Sentence structures varied to mimic human writing rhythm and avoid monotonous AI patterns.</p></div>
-        <div className="bg-blue-50 p-5 rounded-xl border border-blue-100"><h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2"><Target size={16}/> Keyword Density</h4><p className="text-sm text-blue-800/80">Critical hard skills and soft skills from the job description injected naturally into experience bullets.</p></div>
-        <div className="bg-emerald-50 p-5 rounded-xl border border-emerald-100"><h4 className="font-bold text-emerald-900 mb-2 flex items-center gap-2"><Shield size={16}/> Impact Focus</h4><p className="text-sm text-emerald-800/80">Passive language converted to active, results-oriented statements (e.g., "Led," "Optimized").</p></div>
+        <div className="bg-purple-50 p-5 rounded-xl border border-purple-100">
+          <h4 className="font-bold text-purple-900 mb-2 flex items-center gap-2"><Wand2 size={16}/> Burstiness Check</h4>
+          <p className="text-sm text-purple-800/80">Sentence structures varied to mimic human writing rhythm and avoid monotonous AI patterns.</p>
+        </div>
+        <div className="bg-blue-50 p-5 rounded-xl border border-blue-100">
+          <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2"><Target size={16}/> Keyword Density</h4>
+          <p className="text-sm text-blue-800/80">Critical hard skills and soft skills from the job description injected naturally into experience bullets.</p>
+        </div>
+        <div className="bg-emerald-50 p-5 rounded-xl border border-emerald-100">
+          <h4 className="font-bold text-emerald-900 mb-2 flex items-center gap-2"><Shield size={16}/> Impact Focus</h4>
+          <p className="text-sm text-emerald-800/80">Passive language converted to active, results-oriented statements (e.g., "Led," "Optimized").</p>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between items-center"><div className="flex items-center gap-2 text-sm font-medium text-slate-600"><FileEdit size={16} /> Tailored Draft</div><span className="text-xs text-slate-400 font-mono">Markdown Format</span></div>
-        <textarea className="w-full h-[600px] p-8 font-mono text-sm leading-relaxed text-slate-700 resize-none focus:outline-none" readOnly value={tailoredData.tailoredContent} />
+        <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between items-center">
+          <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+            <FileEdit size={16} /> Tailored Draft
+          </div>
+          <span className="text-xs text-slate-400 font-mono">Markdown Format</span>
+        </div>
+        <textarea 
+          className="w-full h-[600px] p-8 font-mono text-sm leading-relaxed text-slate-700 resize-none focus:outline-none"
+          readOnly
+          value={tailoredData.tailoredContent} 
+        />
+      </div>
+    </div>
+  );
+};
+
+// --- Practice Mode Component ---
+const PracticeSession = ({ questions, onClose }) => {
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [timer, setTimer] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [userAnswer, setUserAnswer] = useState('');
+  const [feedback, setFeedback] = useState(null);
+  const [loadingFeedback, setLoadingFeedback] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const audioRef = useRef(null);
+  const audioCache = useRef({});
+  const [showHint, setShowHint] = useState(false);
+  const [completed, setCompleted] = useState(new Set());
+
+  const question = (questions && questions.length > 0) ? questions[currentQIndex] : null;
+
+  useEffect(() => {
+    let interval = null;
+    if (isActive) {
+      interval = setInterval(() => { setTimer(seconds => seconds + 1); }, 1000);
+    } else if (!isActive && timer !== 0) {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isActive, timer]);
+
+  useEffect(() => {
+    if (!question) return;
+    setAudioUrl(null); 
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    setIsPlaying(false);
+    const loadVoice = async () => {
+      if (audioCache.current[currentQIndex]) { setAudioUrl(audioCache.current[currentQIndex]); return; }
+      setVoiceLoading(true);
+      try { const blob = await getAIVoice(question.question); const url = URL.createObjectURL(blob); audioCache.current[currentQIndex] = url; setAudioUrl(url); } catch (e) { console.error("Voice failed", e); } finally { setVoiceLoading(false); }
+    };
+    loadVoice();
+    setUserAnswer(''); setFeedback(null); setTimer(0); setIsActive(false); setShowHint(false);
+  }, [currentQIndex, question]);
+
+  useEffect(() => {
+    if (!questions) return;
+    const nextIndex = currentQIndex + 1;
+    if (nextIndex < questions.length && !audioCache.current[nextIndex]) { getAIVoice(questions[nextIndex].question).then(blob => { const url = URL.createObjectURL(blob); audioCache.current[nextIndex] = url; }).catch(() => {}); }
+  }, [currentQIndex, questions]);
+
+  const handlePlayAudio = () => { if (audioRef.current) { if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); } else { audioRef.current.play(); setIsPlaying(true); } } };
+  const handleGetFeedback = async () => { if (!userAnswer.trim() || !question) return; setLoadingFeedback(true); setIsActive(false); try { const data = await getAIFeedback(question.question, userAnswer); setFeedback(data); } catch (err) { console.error(err); } finally { setLoadingFeedback(false); } };
+  const formatTime = (time) => { const minutes = Math.floor(time / 60); const seconds = time % 60; return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`; };
+  const markComplete = (score) => { const newCompleted = new Set(completed); newCompleted.add(currentQIndex); setCompleted(newCompleted); if (questions && currentQIndex < questions.length - 1) { setTimeout(() => { setCurrentQIndex(prev => prev + 1); }, 500); } };
+
+  if (!question) return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in duration-300">
+      <div className="px-6 h-20 flex items-center justify-between border-b border-slate-100 bg-white">
+        <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold shadow-lg shadow-slate-900/20">{currentQIndex + 1}</div><span className="text-sm font-medium text-slate-500">Question {currentQIndex + 1} of {questions.length}</span></div>
+        <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-900"><X size={24} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-6 pb-24">
+        <div className="max-w-3xl mx-auto space-y-8">
+          <div className="text-center space-y-6">
+            <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold uppercase tracking-wider">{question.category} • {question.difficulty}</span>
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 leading-tight relative group">{question.question}</h2>
+            <div className="flex justify-center">
+              {audioUrl && (<audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} className="hidden" />)}
+              <button onClick={handlePlayAudio} disabled={!audioUrl && !voiceLoading} className={`flex items-center gap-2 px-5 py-2 rounded-full transition-all ${isPlaying ? 'bg-sky-100 text-sky-700 ring-2 ring-sky-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{voiceLoading ? (<Loader2 size={20} className="animate-spin text-slate-400" />) : isPlaying ? (<StopCircle size={20} className="animate-pulse"/>) : (<Volume2 size={20} />)}<span className="text-sm font-medium">{voiceLoading ? 'Loading Voice...' : isPlaying ? 'Stop' : 'Listen to Question'}</span></button>
+            </div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm relative">
+            <div className="flex items-center justify-between mb-4"><div className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm font-mono font-medium ${isActive ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}><Timer size={16} />{formatTime(timer)}</div><button onClick={() => setIsActive(!isActive)} className="text-sm font-medium text-sky-600 hover:underline">{isActive ? 'Pause Timer' : 'Start Timer'}</button></div>
+            <textarea value={userAnswer} onChange={(e) => { setUserAnswer(e.target.value); if (!isActive && !feedback) setIsActive(true); }} placeholder="Type your answer here..." className="w-full h-40 p-4 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-sky-500 text-slate-700 resize-none" disabled={!!feedback} />
+            {!feedback && (<div className="mt-4 flex justify-end"><button onClick={handleGetFeedback} disabled={loadingFeedback || !userAnswer.trim()} className={`flex items-center gap-2 px-6 py-3 rounded-full text-white font-medium transition-all ${loadingFeedback || !userAnswer.trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800 hover:scale-105'}`}>{loadingFeedback ? <Loader2 className="animate-spin" size={18} /> : <MessageSquare size={18} />} Get AI Feedback</button></div>)}
+          </div>
+          {feedback && (<div className="bg-gradient-to-br from-sky-50 to-indigo-50 rounded-2xl p-8 border border-sky-100 animate-in slide-in-from-bottom-5"><div className="flex items-center gap-3 mb-6"><div className="p-2 bg-white rounded-lg shadow-sm text-sky-600"><Sparkles size={24} /></div><div><h3 className="text-lg font-bold text-slate-900">Coach Feedback</h3><div className="flex items-center gap-2"><div className="flex">{[...Array(10)].map((_, i) => (<div key={i} className={`w-2 h-2 rounded-full mr-1 ${i < feedback.score ? 'bg-sky-500' : 'bg-slate-200'}`} />))}</div><span className="text-sm font-bold text-sky-700">{feedback.score}/10</span></div></div></div><div className="space-y-6"><div className="bg-white/60 rounded-xl p-4 border border-sky-100/50"><h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Analysis</h4><p className="text-slate-700 leading-relaxed">{feedback.feedback}</p></div><div className="bg-white rounded-xl p-4 border border-emerald-100/50 shadow-sm"><h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1"><Check size={12} /> Better Example</h4><p className="text-slate-700 leading-relaxed italic">"{feedback.betterAnswer}"</p></div></div><div className="mt-8 flex justify-end"><button onClick={() => { if (currentQIndex < questions.length - 1) { setCurrentQIndex(prev => prev + 1); } else { onClose(); } }} className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800 transition-all">Next Question <ArrowRight size={18} /></button></div></div>)}
+          {!feedback && (<div className="grid grid-cols-2 gap-4 w-full max-w-sm mx-auto mt-8"><button onClick={() => markComplete('high')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:scale-105 transition-all gap-2"><ThumbsUp size={24} /><span className="font-bold text-sm">Nailed It (Skip)</span></button><button onClick={() => markComplete('low')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:scale-105 transition-all gap-2"><ThumbsDown size={24} /><span className="font-bold text-sm">Skip & Practice Later</span></button></div>)}
+          {showHint ? (<div className="w-full max-w-3xl bg-white p-8 rounded-2xl text-left border border-sky-100 shadow-xl shadow-sky-100/50 animate-in slide-in-from-bottom-5 ring-4 ring-sky-50"><h4 className="font-bold text-sky-900 mb-4 flex items-center gap-2 text-lg"><Lightbulb size={20} className="text-sky-500" /> Strategic Approach</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm"><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Situation</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.situation}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Action</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.action}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Result</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.result}</p></div></div></div>) : (<button onClick={() => setShowHint(true)} className="text-slate-400 hover:text-sky-600 text-sm font-medium transition-colors flex items-center gap-2 mx-auto block"><Eye size={16} /> Reveal Strategy Hints</button>)}
+        </div>
       </div>
     </div>
   );
@@ -359,33 +503,10 @@ const BackgroundGradient = () => (
   </div>
 );
 
-const InputCard = ({ title, icon: Icon, placeholder, value, onChange, colorClass }) => (
-  <div className="group relative h-full flex flex-col">
-    <div className={`absolute -inset-0.5 bg-gradient-to-r ${colorClass} rounded-2xl opacity-30 group-hover:opacity-60 transition duration-500 blur`}></div>
-    <div className="relative bg-white/80 backdrop-blur-sm rounded-xl p-6 flex-1 flex flex-col shadow-sm border border-slate-100 transition-transform duration-300 group-hover:-translate-y-1">
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`p-2.5 rounded-xl bg-gradient-to-br ${colorClass} bg-opacity-10 text-slate-800 shadow-sm`}>
-          <Icon size={20} className="text-white" />
-        </div>
-        <h3 className="font-semibold text-slate-900">{title}</h3>
-      </div>
-      <textarea
-        className="flex-1 w-full resize-none bg-transparent border-0 focus:ring-0 p-0 text-slate-600 placeholder:text-slate-400/70 text-sm leading-relaxed"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        spellCheck="false"
-      />
-      <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400 font-medium">
-        <span className={value.length > 0 ? "text-sky-600" : ""}>{value.length} chars</span>
-        <span className="group-hover:text-slate-600 transition-colors flex items-center gap-1 cursor-pointer">Paste text <Copy size={12} /></span>
-      </div>
-    </div>
-  </div>
-);
-
 const ResearchView = () => (<div className="max-w-4xl mx-auto py-12 px-6 animate-in fade-in slide-in-from-bottom-4 duration-500"><div className="text-center mb-16"><div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-bold uppercase tracking-wider mb-4"><Cpu size={14} /> Algorithm Beta 2.5</div><h2 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">How we analyze fit.</h2><p className="text-lg text-slate-600 max-w-2xl mx-auto">Our model decomposes your resume into semantic vectors to understand not just keywords, but underlying capabilities.</p></div><div className="grid md:grid-cols-3 gap-8 mb-20 relative"><div className="hidden md:block absolute top-12 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-slate-200 to-transparent -z-10"></div>{[{ icon: FileText, title: "Tokenization", desc: "Parsing unstructured text from resumes and JDs into structured skill ontologies.", color: "text-blue-500", bg: "bg-blue-50" }, { icon: Network, title: "Semantic Mapping", desc: "Mapping your experience against a high-dimensional vector space of job requirements.", color: "text-purple-500", bg: "bg-purple-50" }, { icon: Zap, title: "Gap Analysis", desc: "Identifying the precise distance between candidate capabilities and role demands.", color: "text-pink-500", bg: "bg-pink-50" }].map((item, i) => (<div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow relative"><div className={`w-12 h-12 ${item.bg} ${item.color} rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0 shadow-inner`}><item.icon size={24} /></div><h3 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h3><p className="text-slate-500 text-sm leading-relaxed">{item.desc}</p></div>))}</div></div>);
 const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-in fade-in slide-in-from-bottom-4 duration-500"><div className="text-center mb-16"><div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-4"><Shield size={14} /> Enterprise Grade</div><h2 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">Your data is yours.</h2><p className="text-lg text-slate-600">We believe interview preparation shouldn't come at the cost of privacy.</p></div><div className="space-y-6">{[{ icon: Lock, title: "Zero Retention Policy", desc: "Your resume and job descriptions are processed in memory and immediately discarded." }, { icon: Eye, title: "No Model Training", desc: "We do not use your inputs to train our public models. Your career history remains private to you." }, { icon: Server, title: "Encrypted Transport", desc: "All data sent between your browser and our analysis engine is encrypted via TLS 1.3 standards." }].map((item, i) => (<div key={i} className="flex gap-6 p-6 rounded-2xl bg-white border border-slate-100 hover:border-slate-200 transition-colors"><div className="flex-shrink-0 w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-900"><item.icon size={24} strokeWidth={1.5} /></div><div><h3 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h3><p className="text-slate-500 leading-relaxed">{item.desc}</p></div></div>))}</div></div>);
+
+// --- Main View Controller ---
 
 const ProductView = () => {
   const [resume, setResume] = useState('');
@@ -395,6 +516,7 @@ const ProductView = () => {
   const [result, setResult] = useState(null);
   const [tailoredResume, setTailoredResume] = useState(null);
   const [error, setError] = useState(null);
+  const [practiceMode, setPracticeMode] = useState(false);
   const [resultTab, setResultTab] = useState('resume'); 
   const resultRef = useRef(null);
 
