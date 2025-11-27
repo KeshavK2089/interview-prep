@@ -7,7 +7,8 @@ export default async function handler(request, response) {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    return response.status(500).json({ error: 'Missing API Key' });
+    console.error("API Key missing in environment variables");
+    return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing in Vercel Settings.' });
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
@@ -15,7 +16,8 @@ export default async function handler(request, response) {
 
   const systemPrompt = `You are an elite executive career coach. 
   TASK: Analyze the Resume and Job Description.
-  OUTPUT FORMAT: Return a SINGLE, VALID JSON object. No markdown.
+  OUTPUT FORMAT: Return a SINGLE, VALID JSON object. 
+  CRITICAL: Do not write ANY text outside the JSON object. Do not use markdown formatting.
   
   INSTRUCTION: Generate exactly ${count} diverse questions.
 
@@ -41,14 +43,13 @@ export default async function handler(request, response) {
       "name": "String",
       "missionKeywords": ["String"],
       "keyChallenges": ["String"],
-      "hiringManagerPainPoints": ["String", "String"], // NEW: What keeps them up at night?
+      "hiringManagerPainPoints": ["String", "String"],
       "talkingPoints": ["String"]
     },
     "elevatorPitch": {
-      "hook": "String (First 10 seconds)",
-      "body": "String (Your experience)",
-      "close": "String (Why this role)",
-      "fullScript": "String"
+      "hook": "String",
+      "body": "String",
+      "close": "String"
     },
     "skillAnalysis": [
       { "skill": "String", "status": "match" | "partial" | "missing" }
@@ -75,26 +76,36 @@ export default async function handler(request, response) {
     });
 
     if (!geminiResponse.ok) {
-      const errorData = await geminiResponse.text();
-      console.error("Gemini API Error:", errorData);
-      throw new Error('Gemini API Error');
+      const errorText = await geminiResponse.text();
+      console.error("Gemini API Error Details:", errorText);
+      throw new Error(`Gemini API Error: ${geminiResponse.status} ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
+    // --- ROBUST CLEANING START ---
     if (textResponse) {
+      // 1. Remove markdown code blocks
       textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
+      
+      // 2. Find the first '{' and the last '}' to strip any extra conversational text
       const firstOpen = textResponse.indexOf('{');
       const lastClose = textResponse.lastIndexOf('}');
+      
       if (firstOpen !== -1 && lastClose !== -1) {
         textResponse = textResponse.substring(firstOpen, lastClose + 1);
       }
     }
+    // --- ROBUST CLEANING END ---
 
-    return response.status(200).json(JSON.parse(textResponse));
+    // Parse strictly
+    const jsonResponse = JSON.parse(textResponse);
+    return response.status(200).json(jsonResponse);
+
   } catch (error) {
-    console.error(error);
-    return response.status(500).json({ error: 'Failed to generate prep plan' });
+    console.error("Generate API Failed:", error);
+    // Return the actual error message to the frontend so we can debug
+    return response.status(500).json({ error: error.message || 'Failed to parse AI response' });
   }
 }
