@@ -3,7 +3,9 @@ export default async function handler(request, response) {
 
   const { question, answer } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  
+  // FORCED: Using Gemini 2.5 Flash Preview
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
   const prompt = `
     Interview Coach. Analyze answer.
