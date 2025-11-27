@@ -3,23 +3,23 @@ export default async function handler(request, response) {
     return response.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { resume, jobDesc, numQuestions } = request.body;
+  const { resume, jobDesc } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing in Vercel.' });
+    return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing.' });
   }
 
-  // FIXED: Use the standard 1.5 Flash model. 
-  // If this gives 404, your API Key might be invalid or copied with spaces.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-  const count = numQuestions || 7; 
+  
+  // FIXED: Default to 6 questions as requested
+  const count = 6; 
 
   const masterPrompt = `
     ROLE: You are an elite executive career coach.
     TASK: Analyze the Resume and Job Description.
     
-    INSTRUCTION: Generate exactly ${count} diverse questions.
+    INSTRUCTION: Generate exactly ${count} diverse, high-impact interview questions.
     
     CRITICAL OUTPUT RULE: 
     Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json. 
@@ -40,9 +40,6 @@ export default async function handler(request, response) {
         "coreFocus": "String",
         "techStack": ["String"]
       },
-      "roleVibe": {
-        "scope": number, "social": number, "structure": number, "techNature": number
-      },
       "companyIntel": {
         "name": "String",
         "missionKeywords": ["String"],
@@ -58,7 +55,6 @@ export default async function handler(request, response) {
       "skillAnalysis": [
         { "skill": "String", "status": "match" | "partial" | "missing" }
       ],
-      "strategicAdvice": "String",
       "questions": [
          { "id": number, "category": "String", "difficulty": "String", "question": "String", "intent": "String", "starGuide": { "situation": "String", "action": "String", "result": "String" } }
       ]
@@ -78,15 +74,12 @@ export default async function handler(request, response) {
     });
 
     if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error(`Gemini API Error (${geminiResponse.status}):`, errorText);
-      throw new Error(`Google API Error: ${geminiResponse.status} - ${geminiResponse.statusText}`);
+      throw new Error(`Gemini API Error: ${geminiResponse.status} ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     
-    // Cleanup: Remove markdown and find JSON boundaries
     textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
     const firstBrace = textResponse.indexOf('{');
     const lastBrace = textResponse.lastIndexOf('}');
@@ -97,7 +90,6 @@ export default async function handler(request, response) {
     return response.status(200).json(JSON.parse(textResponse));
   } catch (error) {
     console.error("Generate API Failed:", error);
-    // Return the EXACT error message to the frontend so you can see it
     return response.status(500).json({ error: error.message });
   }
 }
