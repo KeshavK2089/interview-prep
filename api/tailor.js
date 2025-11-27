@@ -10,25 +10,18 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Missing API Key' });
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // STABLE MODEL URL
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${apiKey}`;
 
-  const systemPrompt = `You are a master executive resume writer and ATS optimization expert. 
+  const systemPrompt = `You are a master executive resume writer. Rewrite the provided resume to target the job description.
+  OUTPUT FORMAT: Return a SINGLE, VALID JSON object. No markdown.
   
-  YOUR GOAL: Rewrite the provided resume to target the specific job description perfectly (95%+ ATS match) while sounding 100% human.
-
-  WRITING STYLE RULES (CRITICAL):
-  1. HIGH PERPLEXITY: Use a diverse vocabulary. Avoid repetitive sentence structures.
-  2. HIGH BURSTINESS: Mix short, punchy impact statements with longer, complex sentences detailing methodology. 
-  3. AUTHENTICITY: Avoid AI buzzwords like "delved," "spearheaded," or "underscored" unless used naturally. Use industry-specific verbs.
-  4. FACTUALITY: Do not invent experiences. optimize existing ones.
-
-  OUTPUT FORMAT: Return a JSON object:
+  JSON STRUCTURE:
   {
     "atsScore": number (0-100),
-    "keyOptimizations": ["string", "string", "string"],
+    "keyOptimizations": ["string"],
     "tailoredContent": "The full markdown text of the new resume"
-  }
-  `;
+  }`;
 
   const userPrompt = `ORIGINAL RESUME:\n${resume}\n\nTARGET JOB DESCRIPTION:\n${jobDesc}`;
 
@@ -43,12 +36,13 @@ export default async function handler(request, response) {
       })
     });
 
-    if (!geminiResponse.ok) throw new Error('Gemini API Error');
+    if (!geminiResponse.ok) {
+      throw new Error(`Gemini Tailor Error: ${geminiResponse.statusText}`);
+    }
     
     const data = await geminiResponse.json();
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
-    // Clean markdown if present
     if (textResponse) {
       textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
       const firstOpen = textResponse.indexOf('{');
@@ -60,7 +54,7 @@ export default async function handler(request, response) {
 
     return response.status(200).json(JSON.parse(textResponse));
   } catch (error) {
-    console.error(error);
+    console.error("Tailor API Failed:", error);
     return response.status(500).json({ error: 'Failed to tailor resume' });
   }
 }
