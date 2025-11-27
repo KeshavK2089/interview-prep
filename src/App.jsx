@@ -9,7 +9,7 @@ import {
   FileEdit, Wand2, Download, AlertTriangle, UserCheck
 } from 'lucide-react';
 
-// --- API Helpers (Improved Error Handling) ---
+// --- API Helpers (Crash-Proof) ---
 
 const generateInterviewPrep = async (resume, jobDesc, numQuestions) => {
   try {
@@ -18,19 +18,18 @@ const generateInterviewPrep = async (resume, jobDesc, numQuestions) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resume, jobDesc, numQuestions })
     });
-
-    // Check for non-JSON responses (like 404 or 500 HTML pages)
+    
+    // Check if response is HTML (error) instead of JSON
     const contentType = response.headers.get("content-type");
     if (!contentType || !contentType.includes("application/json")) {
-      throw new Error(`Server Error (${response.status}): API route not found or crashed.`);
+      throw new Error("Server Error: API route not found or timed out.");
     }
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Failed to generate prep plan');
     return data;
   } catch (err) {
-    console.error("Prep API Error:", err);
-    throw err;
+    throw err; // Pass error up to be handled
   }
 };
 
@@ -44,16 +43,15 @@ const generateTailoredResume = async (resume, jobDesc) => {
 
     const contentType = response.headers.get("content-type");
     if (!contentType || !contentType.includes("application/json")) {
-      console.warn("Tailor API likely missing or crashed.");
-      throw new Error("Tailor API unavailable");
+      return null; // Return null gracefully if this fails
     }
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to tailor resume');
+    if (!response.ok) return null;
     return data;
   } catch (err) {
-    console.error("Tailor API Error:", err);
-    throw err;
+    console.error("Resume Tailor ignored error:", err);
+    return null; // Fail gracefully
   }
 };
 
@@ -258,7 +256,7 @@ const ElevatorPitch = ({ pitch }) => {
   );
 };
 
-// --- Core UI Components ---
+// --- UI Components ---
 
 const Logo = ({ onClick }) => (
   <button onClick={onClick} className="flex items-center gap-2 font-bold text-xl tracking-tighter text-slate-900 hover:opacity-80 transition-opacity">
@@ -526,7 +524,7 @@ const QuestionCard = ({ item, index }) => {
         </div>
         <div className={`p-2 rounded-full transition-all duration-300 ${isOpen ? 'bg-sky-100 rotate-90 text-sky-600' : 'text-slate-300 group-hover:bg-slate-50'}`}><ChevronRight size={18} /></div>
       </button>
-      {isOpen && (<div className="px-5 pb-6 pt-2 animate-in slide-in-from-top-2 duration-300"><div className="mb-6 p-4 bg-slate-50 rounded-lg border-l-4 border-slate-300"><p className="text-sm text-slate-600 italic"><span className="font-bold not-italic text-slate-900 mr-2">Goal:</span> {typeof item.intent === 'string' ? item.intent : ''}</p></div><div className="grid md:grid-cols-3 gap-4"><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Target</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.situation}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Action</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.action}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Result</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.result}</p></div></div></div>)}
+      {isOpen && (<div className="px-5 pb-6 pt-2 animate-in slide-in-from-top-2 duration-300"><div className="mb-6 p-4 bg-slate-50 rounded-lg border-l-4 border-slate-300"><p className="text-sm text-slate-600 italic"><span className="font-bold not-italic text-slate-900 mr-2">Goal:</span> {item.intent}</p></div><div className="grid md:grid-cols-3 gap-4"><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Target</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.situation}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Action</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.action}</p></div><div className="bg-sky-50/50 p-4 rounded-xl border border-sky-100"><div className="flex items-center gap-2 text-sky-700 font-bold text-xs uppercase tracking-wider mb-2">Result</div><p className="text-sm text-slate-700 leading-relaxed">{item.starGuide?.result}</p></div></div></div>)}
     </div>
   );
 };
