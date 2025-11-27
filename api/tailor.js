@@ -10,11 +10,11 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Missing API Key' });
   }
 
-  // FIXED: Reverted to 'gemini-pro'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-  const masterPrompt = `
-    You are a master executive resume writer. Rewrite the provided resume to target the job description.
+  const prompt = `
+    ROLE: You are a master executive resume writer. 
+    TASK: Rewrite the provided resume to target the job description.
     
     CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown. Start with { and end with }.
     
@@ -34,22 +34,22 @@ export default async function handler(request, response) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: masterPrompt }] }]
+        contents: [{ parts: [{ text: prompt }] }]
       })
     });
 
     if (!geminiResponse.ok) {
-      throw new Error(`Gemini Tailor Error: ${geminiResponse.statusText}`);
+      throw new Error(`Gemini Tailor Error: ${geminiResponse.status} ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     
-    // Manual Cleaner
     textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
-    const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      textResponse = jsonMatch[0];
+    const firstBrace = textResponse.indexOf('{');
+    const lastBrace = textResponse.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+        textResponse = textResponse.substring(firstBrace, lastBrace + 1);
     }
 
     return response.status(200).json(JSON.parse(textResponse));
