@@ -6,8 +6,8 @@ export default async function handler(request, response) {
   const { question, answer } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
-  // STABLE MODEL URL
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${apiKey}`;
+  // FIXED: Using the universal alias 'gemini-1.5-flash'
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   const systemPrompt = `You are an interview coach. Analyze the candidate's answer.
   OUTPUT FORMAT: JSON Object.
@@ -29,6 +29,8 @@ export default async function handler(request, response) {
         generationConfig: { responseMimeType: "application/json" }
       })
     });
+
+    if (!geminiResponse.ok) throw new Error('Gemini API Error');
 
     const data = await geminiResponse.json();
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
