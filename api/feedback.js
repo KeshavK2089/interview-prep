@@ -6,19 +6,16 @@ export default async function handler(request, response) {
   const { question, answer } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  // STABLE MODEL URL
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${apiKey}`;
 
-  const systemPrompt = `You are an interview coach. 
-  Analyze the candidate's answer to the interview question.
-  Be conversational, encouraging, but critical.
-  
-  Return a JSON object:
+  const systemPrompt = `You are an interview coach. Analyze the candidate's answer.
+  OUTPUT FORMAT: JSON Object.
   {
     "score": number (1-10),
-    "feedback": "2-3 sentences on what they did well and what was missing.",
-    "betterAnswer": "A concise example of a stronger response."
-  }
-  `;
+    "feedback": "string",
+    "betterAnswer": "string"
+  }`;
 
   const userPrompt = `QUESTION: "${question}"\nCANDIDATE ANSWER: "${answer}"`;
 
@@ -34,7 +31,9 @@ export default async function handler(request, response) {
     });
 
     const data = await geminiResponse.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text.replace(/```json/g, '').replace(/```/g, '').trim();
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
     return response.status(200).json(JSON.parse(text));
   } catch (error) {
     return response.status(500).json({ error: 'Failed to analyze answer' });
