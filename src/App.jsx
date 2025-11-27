@@ -608,7 +608,7 @@ const ResumeInfoView = () => (
 
 const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-in fade-in slide-in-from-bottom-4 duration-500"><div className="text-center mb-16"><div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-4"><Shield size={14} /> Enterprise Grade</div><h2 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">Your data is yours.</h2><p className="text-lg text-slate-600">We believe interview preparation shouldn't come at the cost of privacy.</p></div><div className="space-y-6">{[{ icon: Lock, title: "Zero Retention Policy", desc: "Your resume and job descriptions are processed in memory and immediately discarded." }, { icon: Eye, title: "No Model Training", desc: "We do not use your inputs to train our public models. Your career history remains private to you." }, { icon: Server, title: "Encrypted Transport", desc: "All data sent between your browser and our analysis engine is encrypted via TLS 1.3 standards." }].map((item, i) => (<div key={i} className="flex gap-6 p-6 rounded-2xl bg-white border border-slate-100 hover:border-slate-200 transition-colors"><div className="flex-shrink-0 w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-900"><item.icon size={24} strokeWidth={1.5} /></div><div><h3 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h3><p className="text-slate-500 leading-relaxed">{item.desc}</p></div></div>))}
     <div className="mt-12 pt-10 border-t border-slate-100">
-      <h3 className="text-2xl font-bold text-slate-900 mb-6 text-center">Questions? Contact the Developer</h3>
+      <h3 className="text-2xl font-bold text-slate-900 mb-6 text-center">Questions? Contact me!</h3>
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center">
@@ -616,7 +616,7 @@ const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-i
           </div>
           <div>
             <h4 className="font-bold text-slate-900">Keshav Kotteswaran</h4>
-            <p className="text-sm text-slate-500">Bioengineer & Developer</p>
+            <p className="text-sm text-slate-500">Bioengineer</p>
           </div>
         </div>
         <div className="flex gap-3">
