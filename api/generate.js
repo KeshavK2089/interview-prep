@@ -10,13 +10,14 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing.' });
   }
 
-  // Using gemini-1.5-flash as it is the most stable current model.
-  // If this 404s, your key might lack access, but it's the standard for new keys.
+  // We use gemini-1.5-flash because it is the fastest and least likely to timeout
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const count = numQuestions || 7; 
 
-  const masterPrompt = `
-    You are an elite executive career coach. Analyze the Resume and Job Description.
+  // Merged Prompt: Safer for all API versions
+  const prompt = `
+    ROLE: You are an elite executive career coach. 
+    TASK: Analyze the Resume and Job Description below.
     
     INSTRUCTION: Generate exactly ${count} diverse questions.
     
@@ -63,8 +64,11 @@ export default async function handler(request, response) {
       ]
     }
 
-    RESUME: ${resume}
-    JOB DESCRIPTION: ${jobDesc}
+    RESUME: 
+    ${resume}
+
+    JOB DESCRIPTION: 
+    ${jobDesc}
   `;
 
   try {
@@ -72,7 +76,7 @@ export default async function handler(request, response) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: masterPrompt }] }]
+        contents: [{ parts: [{ text: prompt }] }]
       })
     });
 
@@ -81,36 +85,19 @@ export default async function handler(request, response) {
     }
     
     const data = await geminiResponse.json();
-
-    // Check if the AI refused to answer (Safety Filters)
-    if (!data.candidates || data.candidates.length === 0) {
-        throw new Error("AI returned no content. It might have been flagged by safety filters.");
-    }
-
-    let textResponse = data.candidates[0].content?.parts?.[0]?.text || "{}";
+    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     
-    // --- ADVANCED CLEANER ---
-    // 1. Remove markdown fences
+    // Cleaner Logic
     textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
-    
-    // 2. Surgical Extraction: Find the VERY FIRST '{' and the VERY LAST '}'
     const firstBrace = textResponse.indexOf('{');
     const lastBrace = textResponse.lastIndexOf('}');
-    
     if (firstBrace !== -1 && lastBrace !== -1) {
         textResponse = textResponse.substring(firstBrace, lastBrace + 1);
-    } else {
-        throw new Error("AI response did not contain valid JSON structure");
     }
-    // --- END CLEANER ---
 
-    // Parse
-    const parsedData = JSON.parse(textResponse);
-    return response.status(200).json(parsedData);
-
+    return response.status(200).json(JSON.parse(textResponse));
   } catch (error) {
     console.error("Generate API Failed:", error);
-    // Send the ACTUAL error message to the frontend for easier debugging
-    return response.status(500).json({ error: error.message || 'Server Error' });
+    return response.status(500).json({ error: error.message || 'Failed to parse AI response' });
   }
 }
