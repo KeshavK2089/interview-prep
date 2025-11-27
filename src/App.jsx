@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURATION ---
-const apiKey = ""; 
+const apiKey = "AIzaSyBqINHiCZ6sfO2ag3uDHZfdiaHjA-apjb0"; 
 
 // --- HELPERS ---
 
