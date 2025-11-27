@@ -3,15 +3,17 @@ export default async function handler(request, response) {
 
   const { resume, jobDesc } = request.body;
   const apiKey = process.env.GEMINI_API_KEY;
-  
-  // Using the stable 1.5 Flash model
+
+  if (!apiKey) return response.status(500).json({ error: 'Server Config Error: Missing API Key' });
+
+  // Using standard stable model to avoid 403/404 errors
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-  
-  const prompt = `
+  const count = 6; 
+
+  const masterPrompt = `
     ROLE: You are an elite executive career coach.
     TASK: Analyze the Resume and Job Description.
-    INSTRUCTION: Generate exactly 6 diverse questions.
-    
+    INSTRUCTION: Generate exactly ${count} diverse questions.
     CRITICAL OUTPUT RULE: Return ONLY a valid JSON object. No markdown.
     
     JSON STRUCTURE:
@@ -24,11 +26,6 @@ export default async function handler(request, response) {
         { "label": "Communication", "score": number },
         { "label": "Culture Fit", "score": number }
       ],
-      "roleAnalysis": {
-        "level": "Entry/Mid/Senior/Lead/Executive",
-        "coreFocus": "String",
-        "techStack": ["String"]
-      },
       "companyIntel": {
         "name": "String",
         "missionKeywords": ["String"],
@@ -36,14 +33,8 @@ export default async function handler(request, response) {
         "hiringManagerPainPoints": ["String"],
         "talkingPoints": ["String"]
       },
-      "elevatorPitch": {
-        "hook": "String",
-        "body": "String",
-        "close": "String"
-      },
-      "skillAnalysis": [
-        { "skill": "String", "status": "match" | "partial" | "missing" }
-      ],
+      "elevatorPitch": { "hook": "String", "body": "String", "close": "String" },
+      "skillAnalysis": [ { "skill": "String", "status": "match" | "partial" | "missing" } ],
       "questions": [
          { "id": number, "category": "String", "difficulty": "String", "question": "String", "intent": "String", "starGuide": { "situation": "String", "action": "String", "result": "String" } }
       ]
@@ -57,13 +48,11 @@ export default async function handler(request, response) {
     const geminiResponse = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      body: JSON.stringify({ contents: [{ parts: [{ text: masterPrompt }] }] })
     });
 
     const data = await geminiResponse.json();
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    
-    // Clean Markdown
     text = text.replace(/```json/g, '').replace(/```/g, '');
     const first = text.indexOf('{');
     const last = text.lastIndexOf('}');
@@ -71,6 +60,6 @@ export default async function handler(request, response) {
 
     return response.status(200).json(JSON.parse(text));
   } catch (error) {
-    return response.status(500).json({ error: 'Failed to generate prep plan' });
+    return response.status(500).json({ error: 'Failed to generate plan' });
   }
 }
