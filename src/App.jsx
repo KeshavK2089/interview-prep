@@ -637,15 +637,15 @@ const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-i
             <User size={24} />
           </div>
           <div>
-            <h4 className="font-bold text-slate-900">Keshav Kotteswaran</h4>
+            <h4 className="font-bold text-slate-900">Name</h4>
             <p className="text-sm text-slate-500">Bioengineer</p>
           </div>
         </div>
         <div className="flex gap-3">
-          <a href="mailto:kotteswaran.k@northeastern.edu" className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+          <a href="mailto:animalcafe98398@gmail.com" className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
             <Mail size={16} /> Email
           </a>
-          <a href="https://www.linkedin.com/in/keshav-kotteswaran/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-[#0077b5]/10 border border-[#0077b5]/20 rounded-lg text-sm font-medium text-[#0077b5] hover:bg-[#0077b5]/20 transition-colors">
+          <a href="https://www.linkedin.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-[#0077b5]/10 border border-[#0077b5]/20 rounded-lg text-sm font-medium text-[#0077b5] hover:bg-[#0077b5]/20 transition-colors">
             <Linkedin size={16} /> LinkedIn
           </a>
         </div>
