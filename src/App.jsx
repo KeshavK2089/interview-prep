@@ -9,67 +9,296 @@ import {
   FileEdit, Wand2, Download, AlertTriangle, UserCheck
 } from 'lucide-react';
 
-// --- API Helpers (Calling Secure Backend) ---
+// --- CONFIGURATION ---
+// NOTE: API Key is empty for security. The execution environment injects it, 
+// or you can paste your key here for local testing: "AIzaSy..."
+const apiKey = ""; 
 
-const generateInterviewPrep = async (resume, jobDesc) => {
-  const response = await fetch('/api/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jobDesc })
-  });
-  
-  const contentType = response.headers.get("content-type");
-  if (!contentType || !contentType.includes("application/json")) {
-    throw new Error("Server connection failed. Please ensure API functions are deployed.");
+// --- HELPER: PCM to WAV Converter for TTS ---
+const pcmToWav = (pcmData, sampleRate = 24000) => {
+  const binaryString = atob(pcmData);
+  const buffer = new ArrayBuffer(binaryString.length);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < binaryString.length; i++) {
+    view[i] = binaryString.charCodeAt(i);
+  }
+  const pcm16 = new Int16Array(buffer);
+
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const wavDataByteLength = pcm16.length * 2; 
+  const headerSize = 44;
+  const totalLength = headerSize + wavDataByteLength;
+
+  const wavBuffer = new ArrayBuffer(totalLength);
+  const dv = new DataView(wavBuffer);
+
+  let p = 0;
+  const writeString = (s) => {
+    for (let i = 0; i < s.length; i++) dv.setUint8(p++, s.charCodeAt(i));
+  };
+
+  writeString('RIFF');
+  dv.setUint32(p, 36 + wavDataByteLength, true); p += 4;
+  writeString('WAVE');
+  writeString('fmt ');
+  dv.setUint32(p, 16, true); p += 4;
+  dv.setUint16(p, 1, true); p += 2; 
+  dv.setUint16(p, numChannels, true); p += 2;
+  dv.setUint32(p, sampleRate, true); p += 4;
+  dv.setUint32(p, byteRate, true); p += 4;
+  dv.setUint16(p, blockAlign, true); p += 2;
+  dv.setUint16(p, bitsPerSample, true); p += 2;
+  writeString('data');
+  dv.setUint32(p, wavDataByteLength, true); p += 4;
+
+  for (let i = 0; i < pcm16.length; i++) {
+    dv.setInt16(p, pcm16[i], true); p += 2;
   }
 
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Failed to generate prep plan');
-  return data;
+  return new Blob([wavBuffer], { type: 'audio/wav' });
+};
+
+// --- Helper: Robust JSON Parser ---
+const parseAIResponse = (text) => {
+  if (!text) return null;
+  let cleanText = text.replace(/```json/g, '').replace(/```/g, '');
+  const firstOpen = cleanText.indexOf('{');
+  const lastClose = cleanText.lastIndexOf('}');
+  if (firstOpen !== -1 && lastClose !== -1) {
+    cleanText = cleanText.substring(firstOpen, lastClose + 1);
+  }
+  try {
+    return JSON.parse(cleanText);
+  } catch (e) {
+    console.warn("JSON parse failed, attempting sanitize", e);
+    const sanitized = cleanText.replace(/\\(?![/u"bfnrt])/g, "\\\\");
+    return JSON.parse(sanitized);
+  }
+};
+
+const renderSafe = (content) => {
+  if (content === null || content === undefined) return '';
+  if (typeof content === 'string') return content;
+  if (typeof content === 'number') return content;
+  if (Array.isArray(content)) return content.map(i => renderSafe(i)).join(', ');
+  if (typeof content === 'object') return JSON.stringify(content); 
+  return String(content);
+};
+
+// --- CLIENT-SIDE API FUNCTIONS (Direct Calls for Stability) ---
+
+const generateInterviewPrep = async (resume, jobDesc) => {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  const count = 6; 
+  const masterPrompt = `
+    ROLE: You are an elite executive career coach.
+    TASK: Analyze the Resume and Job Description.
+    
+    INSTRUCTION: Generate exactly ${count} diverse questions.
+    
+    CRITICAL OUTPUT RULE: 
+    Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json. 
+    Start with { and end with }.
+
+    JSON STRUCTURE:
+    {
+      "compatibilityScore": number (0-100),
+      "dimensions": [
+        { "label": "Technical", "score": number },
+        { "label": "Experience", "score": number },
+        { "label": "Leadership", "score": number },
+        { "label": "Communication", "score": number },
+        { "label": "Culture Fit", "score": number }
+      ],
+      "roleAnalysis": {
+        "level": "Entry/Mid/Senior/Lead/Executive",
+        "coreFocus": "String",
+        "techStack": ["String"]
+      },
+      "companyIntel": {
+        "name": "String",
+        "missionKeywords": ["String"],
+        "keyChallenges": ["String"],
+        "hiringManagerPainPoints": ["String"],
+        "talkingPoints": ["String"]
+      },
+      "elevatorPitch": {
+        "hook": "String",
+        "body": "String",
+        "close": "String"
+      },
+      "skillAnalysis": [
+        { "skill": "String", "status": "match" | "partial" | "missing" }
+      ],
+      "questions": [
+         { "id": number, "category": "String", "difficulty": "String", "question": "String", "intent": "String", "starGuide": { "situation": "String", "action": "String", "result": "String" } }
+      ]
+    }
+
+    RESUME: ${resume}
+    JOB DESCRIPTION: ${jobDesc}
+  `;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: masterPrompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+
+    if (!response.ok) throw new Error(`Gemini API Error: ${response.status}`);
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return parseAIResponse(text);
+  } catch (error) {
+    console.error("Prep Generation Error", error);
+    throw new Error("Failed to generate prep plan");
+  }
 };
 
 const generateTailoredResume = async (resume, jobDesc) => {
-  try {
-    const response = await fetch('/api/tailor', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ resume, jobDesc })
-    });
-
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-       throw new Error("Server connection failed.");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  const prompt = `
+    ROLE: You are a master executive resume writer matching an Oxford/MIT English professor's standard.
+    TASK: Rewrite the provided resume to target the job description.
+    
+    STRICT FORMATTING RULES (Based on user file):
+    1. **NO SUMMARY**: Remove professional summary/objective completely.
+    2. **HEADER**: Name on top line. Second line: Email | Phone | LinkedIn.
+    3. **ORDER**: Education, Experience, Projects, Skills.
+    4. **FORMAT**: Simple, clean text. No markdown symbols like ## or **.
+    5. **EXPERIENCE HEADER**: "Role | Company | Location | Date" (e.g. "Project Manager | Epic Systems | Madison, WI | September 2024-August 2025").
+    6. **EDUCATION HEADER**: "Degree | School | Location | GPA | Date" (e.g. "M.S. in Bioengineering | Northeastern University | Boston, MA | GPA: 3.76/4.00 | December 2025").
+    
+    WRITING TONE:
+    - High burstiness (mix short impact sentences with detailed methodology).
+    - High perplexity (varied vocabulary).
+    - Use strong, non-cliché verbs (e.g., "Engineered", "Deployed", "Validated").
+    
+    CRITICAL OUTPUT RULE: Return ONLY a valid JSON object.
+    
+    JSON STRUCTURE:
+    {
+      "atsScore": number (0-100),
+      "contact": { "name": "String", "details": "Email | Phone | LinkedIn" },
+      "education": [ 
+        { "line": "Degree | School | Location | GPA | Date", "details": "Concentration/Minor/Awards" } 
+      ],
+      "experience": [ 
+        { 
+          "header": "Role | Company | Location | Date", 
+          "bullets": ["String", "String", "String"] 
+        } 
+      ],
+      "projects": [
+        {
+          "header": "Title | Institution/Context | Location | Date",
+          "bullets": ["String", "String"]
+        }
+      ],
+      "skills": [
+        { "category": "String", "items": "String" }
+      ],
+      "resumeTalkingPoints": [
+        { 
+          "role": "Role/Project Name", 
+          "script": "A conversational, 1-2 sentence way to explain this achievement." 
+        }
+      ]
     }
 
+    ORIGINAL RESUME: ${resume}
+    TARGET JOB DESCRIPTION: ${jobDesc}
+  `;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+
+    if (!response.ok) throw new Error(`Gemini API Error: ${response.status}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to tailor resume');
-    return data;
-  } catch (err) {
-    console.error("Resume Tailor Error:", err);
-    throw err;
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return parseAIResponse(text);
+  } catch (error) {
+    console.error("Resume Tailor Error", error);
+    return null; 
   }
 };
 
 const getAIFeedback = async (question, answer) => {
-  const response = await fetch('/api/feedback', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, answer })
-  });
-  return await response.json();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  const prompt = `
+    You are an interview coach. Analyze the candidate's answer.
+    OUTPUT FORMAT: JSON Object { "score": number (1-10), "feedback": "string", "betterAnswer": "string" }
+    QUESTION: "${question}"
+    CANDIDATE ANSWER: "${answer}"
+  `;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+    if (!response.ok) throw new Error('Feedback API Failed');
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return parseAIResponse(text);
+  } catch (error) {
+    console.error("Feedback Error", error);
+    throw error;
+  }
 };
 
 const getAIVoice = async (text) => {
-  const response = await fetch('/api/speak', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text })
-  });
-  if (!response.ok) throw new Error('Voice generation failed');
-  return await response.blob();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: text }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: "Kore" }
+            }
+          }
+        }
+      })
+    });
+
+    if (!response.ok) throw new Error('TTS API Failed');
+    const data = await response.json();
+    const base64Audio = data.candidates[0].content.parts[0].inlineData.data;
+    return pcmToWav(base64Audio);
+  } catch (error) {
+    console.error("Voice Error", error);
+    throw error;
+  }
 };
 
-// --- VISUAL & UI COMPONENTS ---
+// --- COMPONENT DEFINITIONS ---
 
 const BackgroundGradient = () => (
   <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
@@ -112,13 +341,7 @@ const Nav = ({ activeTab, setActiveTab }) => {
         <Logo onClick={handleLogoClick} />
         <div className="hidden md:flex items-center gap-1 p-1 bg-slate-100/50 rounded-full border border-slate-200/50">
           {tabs.map(tab => (
-            <button 
-              key={tab.id} 
-              onClick={() => handleTabClick(tab.id)} 
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-300 ${activeTab === tab.id ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/5' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              {tab.label}
-            </button>
+            <button key={tab.id} onClick={() => handleTabClick(tab.id)} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-300 ${activeTab === tab.id ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/5' : 'text-slate-500 hover:text-slate-700'}`}>{tab.label}</button>
           ))}
         </div>
         <div className="hidden md:flex items-center gap-4">
@@ -129,9 +352,7 @@ const Nav = ({ activeTab, setActiveTab }) => {
       {mobileMenuOpen && (
         <div className="md:hidden absolute top-16 left-0 w-full bg-white border-b border-slate-100 p-6 flex flex-col gap-4 animate-in slide-in-from-top-5 shadow-xl">
           {tabs.map(tab => (
-            <button key={tab.id} onClick={() => handleTabClick(tab.id)} className={`text-left text-lg font-medium ${activeTab === tab.id ? 'text-sky-600' : 'text-slate-600'}`}>
-              {tab.label}
-            </button>
+            <button key={tab.id} onClick={() => handleTabClick(tab.id)} className={`text-left text-lg font-medium ${activeTab === tab.id ? 'text-sky-600' : 'text-slate-600'}`}>{tab.label}</button>
           ))} 
           <a href="https://keshavk2089.github.io/ResumeInteractiveKesh/" target="_blank" rel="noopener noreferrer" className="text-left text-lg font-medium text-slate-600 hover:text-sky-600">About Me</a>
         </div>
@@ -164,13 +385,6 @@ const InputCard = ({ title, icon: Icon, placeholder, value, onChange, colorClass
     </div>
   </div>
 );
-
-// Helper for safe string rendering
-const renderSafe = (content) => {
-  if (content === null || content === undefined) return '';
-  if (typeof content === 'string') return content;
-  return String(content);
-};
 
 const QuestionCard = ({ item, index }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -450,7 +664,7 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
         </div>
       </div>
 
-      {/* NEW: Resume Talking Points */}
+      {/* Resume Talking Points */}
       {tailoredData.resumeTalkingPoints && tailoredData.resumeTalkingPoints.length > 0 && (
         <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
           <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2"><MessageSquare size={20}/> How to Talk About Your Experience</h3>
@@ -468,172 +682,12 @@ const ResumeTailor = ({ originalResume, tailoredData }) => {
       {/* Styled Document Preview */}
       <div className="bg-white rounded-sm shadow-lg border border-slate-200 overflow-hidden max-w-[850px] mx-auto text-slate-900 font-sans">
          <div className="p-12 space-y-6">
-            
-            {/* Header */}
-            <div className="text-center border-b border-slate-300 pb-6">
-               <h1 className="text-3xl font-serif font-bold mb-2">{renderSafe(tailoredData.contact?.name || 'Candidate Name')}</h1>
-               <p className="text-sm text-slate-600 font-medium">{renderSafe(tailoredData.contact?.details || 'Email | Phone | LinkedIn')}</p>
-            </div>
-
-            {/* Education */}
-            <div>
-               <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Education</h2>
-               {tailoredData.education?.map((edu, i) => (
-                  <div key={i} className="mb-3">
-                     <div className="flex justify-between font-bold text-sm">
-                        <span>{renderSafe(edu.line.split('|')[1] || edu.line)}</span> {/* School Name */}
-                        <span>{renderSafe(edu.line.split('|')[2] || '')}</span> {/* Location */}
-                     </div>
-                     <div className="flex justify-between text-sm italic mb-1">
-                        <span>{renderSafe(edu.line.split('|')[0])}</span> {/* Degree */}
-                        <span>{renderSafe(edu.line.split('|')[4] || '')}</span> {/* Date */}
-                     </div>
-                     {edu.details && <p className="text-sm text-slate-700">{renderSafe(edu.details)}</p>}
-                  </div>
-               ))}
-            </div>
-
-            {/* Experience */}
-            <div>
-               <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Experience</h2>
-               {tailoredData.experience?.map((exp, i) => (
-                  <div key={i} className="mb-4">
-                     <div className="flex justify-between font-bold text-sm">
-                        <span>{renderSafe(exp.header.split('|')[0])}</span> {/* Role */}
-                        <span>{renderSafe(exp.header.split('|')[2] || '')}</span> {/* Location */}
-                     </div>
-                     <div className="flex justify-between text-sm italic mb-1">
-                        <span>{renderSafe(exp.header.split('|')[1])}</span> {/* Company */}
-                        <span>{renderSafe(exp.header.split('|')[3] || '')}</span> {/* Date */}
-                     </div>
-                     <ul className="list-disc list-outside ml-4 space-y-1">
-                        {exp.bullets?.map((b, j) => (
-                           <li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>
-                        ))}
-                     </ul>
-                  </div>
-               ))}
-            </div>
-
-             {/* Projects */}
-             {tailoredData.projects && tailoredData.projects.length > 0 && (
-                <div>
-                  <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Projects</h2>
-                  {tailoredData.projects.map((proj, i) => (
-                      <div key={i} className="mb-3">
-                        <div className="flex justify-between font-bold text-sm">
-                            <span>{renderSafe(proj.header.split('|')[0])}</span> {/* Title */}
-                            <span>{renderSafe(proj.header.split('|')[2] || '')}</span> {/* Date */}
-                        </div>
-                        <div className="text-xs italic text-slate-600 mb-1">{renderSafe(proj.header.split('|')[1])}</div> {/* Context */}
-                        <ul className="list-disc list-outside ml-4 space-y-1">
-                            {proj.bullets?.map((b, j) => (
-                              <li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>
-                            ))}
-                        </ul>
-                      </div>
-                  ))}
-                </div>
-             )}
-
-             {/* Skills */}
-             <div>
-                <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Skills</h2>
-                <div className="space-y-1">
-                  {tailoredData.skills?.map((skill, i) => (
-                     <div key={i} className="text-sm text-slate-800">
-                        <span className="font-bold">{renderSafe(skill.category)}:</span> {renderSafe(skill.items)}
-                     </div>
-                  ))}
-                </div>
-             </div>
-
+            <div className="text-center border-b border-slate-300 pb-6"><h1 className="text-3xl font-serif font-bold mb-2">{renderSafe(tailoredData.contact?.name || 'Candidate Name')}</h1><p className="text-sm text-slate-600 font-medium">{renderSafe(tailoredData.contact?.details || 'Email | Phone | LinkedIn')}</p></div>
+            <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Education</h2>{tailoredData.education?.map((edu, i) => (<div key={i} className="mb-3"><div className="flex justify-between font-bold text-sm"><span>{renderSafe(edu.line.split('|')[1] || edu.line)}</span><span>{renderSafe(edu.line.split('|')[2] || '')}</span></div><div className="flex justify-between text-sm italic mb-1"><span>{renderSafe(edu.line.split('|')[0])}</span><span>{renderSafe(edu.line.split('|')[4] || '')}</span></div><div className="text-xs text-slate-500 hidden">{edu.line}</div> {edu.details && <p className="text-sm text-slate-700">{renderSafe(edu.details)}</p>}</div>))}</div>
+            <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Experience</h2>{tailoredData.experience?.map((exp, i) => (<div key={i} className="mb-4"><div className="flex justify-between font-bold text-sm"><span>{renderSafe(exp.header.split('|')[0])}</span><span>{renderSafe(exp.header.split('|')[2] || '')}</span></div><div className="flex justify-between text-sm italic mb-1"><span>{renderSafe(exp.header.split('|')[1])}</span><span>{renderSafe(exp.header.split('|')[3] || '')}</span></div><ul className="list-disc list-outside ml-4 space-y-1">{exp.bullets?.map((b, j) => (<li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>))}</ul></div>))}</div>
+             {tailoredData.projects && tailoredData.projects.length > 0 && (<div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Projects</h2>{tailoredData.projects.map((proj, i) => (<div key={i} className="mb-3"><div className="flex justify-between font-bold text-sm"><span>{renderSafe(proj.header.split('|')[0])}</span><span>{renderSafe(proj.header.split('|')[2] || '')}</span></div><div className="text-xs italic text-slate-600 mb-1">{renderSafe(proj.header.split('|')[1])}</div><ul className="list-disc list-outside ml-4 space-y-1">{proj.bullets?.map((b, j) => (<li key={j} className="text-sm text-slate-700 leading-relaxed pl-1">{renderSafe(b)}</li>))}</ul></div>))}</div>)}
+             <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Skills</h2><div className="space-y-1">{tailoredData.skills?.map((skill, i) => (<div key={i} className="text-sm text-slate-800"><span className="font-bold">{renderSafe(skill.category)}:</span> {renderSafe(skill.items)}</div>))}</div></div>
          </div>
-      </div>
-    </div>
-  );
-};
-
-// --- PRACTICE SESSION (Defined before use) ---
-const PracticeSession = ({ questions, onClose }) => {
-  const [currentQIndex, setCurrentQIndex] = useState(0);
-  const [timer, setTimer] = useState(0);
-  const [isActive, setIsActive] = useState(false);
-  const [userAnswer, setUserAnswer] = useState('');
-  const [feedback, setFeedback] = useState(null);
-  const [loadingFeedback, setLoadingFeedback] = useState(false);
-  const [audioUrl, setAudioUrl] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [voiceLoading, setVoiceLoading] = useState(false);
-  const audioRef = useRef(null);
-  const audioCache = useRef({});
-  const [showHint, setShowHint] = useState(false);
-  const [completed, setCompleted] = useState(new Set());
-
-  const question = (questions && questions.length > 0) ? questions[currentQIndex] : null;
-
-  useEffect(() => {
-    let interval = null;
-    if (isActive) {
-      interval = setInterval(() => { setTimer(seconds => seconds + 1); }, 1000);
-    } else if (!isActive && timer !== 0) {
-      clearInterval(interval);
-    }
-    return () => clearInterval(interval);
-  }, [isActive, timer]);
-
-  useEffect(() => {
-    if (!question) return;
-    setAudioUrl(null); 
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
-    setIsPlaying(false);
-    const loadVoice = async () => {
-      if (audioCache.current[currentQIndex]) { setAudioUrl(audioCache.current[currentQIndex]); return; }
-      setVoiceLoading(true);
-      try { const blob = await getAIVoice(question.question); const url = URL.createObjectURL(blob); audioCache.current[currentQIndex] = url; setAudioUrl(url); } catch (e) { console.error("Voice failed", e); } finally { setVoiceLoading(false); }
-    };
-    loadVoice();
-    setUserAnswer(''); setFeedback(null); setTimer(0); setIsActive(false); setShowHint(false);
-  }, [currentQIndex, question]);
-
-  useEffect(() => {
-    if (!questions) return;
-    const nextIndex = currentQIndex + 1;
-    if (nextIndex < questions.length && !audioCache.current[nextIndex]) { getAIVoice(questions[nextIndex].question).then(blob => { const url = URL.createObjectURL(blob); audioCache.current[nextIndex] = url; }).catch(() => {}); }
-  }, [currentQIndex, questions]);
-
-  const handlePlayAudio = () => { if (audioRef.current) { if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); } else { audioRef.current.play(); setIsPlaying(true); } } };
-  const handleGetFeedback = async () => { if (!userAnswer.trim() || !question) return; setLoadingFeedback(true); setIsActive(false); try { const data = await getAIFeedback(question.question, userAnswer); setFeedback(data); } catch (err) { console.error(err); } finally { setLoadingFeedback(false); } };
-  const formatTime = (time) => { const minutes = Math.floor(time / 60); const seconds = time % 60; return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`; };
-  const markComplete = (score) => { const newCompleted = new Set(completed); newCompleted.add(currentQIndex); setCompleted(newCompleted); if (questions && currentQIndex < questions.length - 1) { setTimeout(() => { setCurrentQIndex(prev => prev + 1); }, 500); } };
-
-  if (!question) return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in duration-300">
-      <div className="px-6 h-20 flex items-center justify-between border-b border-slate-100 bg-white">
-        <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold shadow-lg shadow-slate-900/20">{currentQIndex + 1}</div><span className="text-sm font-medium text-slate-500">Question {currentQIndex + 1} of {questions.length}</span></div>
-        <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-900"><X size={24} /></button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-6 pb-24">
-        <div className="max-w-3xl mx-auto space-y-8">
-          <div className="text-center space-y-6">
-            <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold uppercase tracking-wider">{renderSafe(question.category)} • {renderSafe(question.difficulty)}</span>
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 leading-tight relative group">{renderSafe(question.question)}</h2>
-            <div className="flex justify-center">
-              {audioUrl && (<audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} className="hidden" />)}
-              <button onClick={handlePlayAudio} disabled={!audioUrl && !voiceLoading} className={`flex items-center gap-2 px-5 py-2 rounded-full transition-all ${isPlaying ? 'bg-sky-100 text-sky-700 ring-2 ring-sky-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{voiceLoading ? (<Loader2 size={20} className="animate-spin text-slate-400" />) : isPlaying ? (<StopCircle size={20} className="animate-pulse"/>) : (<Volume2 size={20} />)}<span className="text-sm font-medium">{voiceLoading ? 'Loading Voice...' : isPlaying ? 'Stop' : 'Listen to Question'}</span></button>
-            </div>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm relative">
-            <div className="flex items-center justify-between mb-4"><div className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm font-mono font-medium ${isActive ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}><Timer size={16} />{formatTime(timer)}</div><button onClick={() => setIsActive(!isActive)} className="text-sm font-medium text-sky-600 hover:underline">{isActive ? 'Pause Timer' : 'Start Timer'}</button></div>
-            <textarea value={userAnswer} onChange={(e) => { setUserAnswer(e.target.value); if (!isActive && !feedback) setIsActive(true); }} placeholder="Type your answer here..." className="w-full h-40 p-4 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-sky-500 text-slate-700 resize-none" disabled={!!feedback} />
-            {!feedback && (<div className="mt-4 flex justify-end"><button onClick={handleGetFeedback} disabled={loadingFeedback || !userAnswer.trim()} className={`flex items-center gap-2 px-6 py-3 rounded-full text-white font-medium transition-all ${loadingFeedback || !userAnswer.trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800 hover:scale-105'}`}>{loadingFeedback ? <Loader2 className="animate-spin" size={18} /> : <MessageSquare size={18} />} Get AI Feedback</button></div>)}
-          </div>
-          {feedback && (<div className="bg-gradient-to-br from-sky-50 to-indigo-50 rounded-2xl p-8 border border-sky-100 animate-in slide-in-from-bottom-5"><div className="flex items-center gap-3 mb-6"><div className="p-2 bg-white rounded-lg shadow-sm text-sky-600"><Sparkles size={24} /></div><div><h3 className="text-lg font-bold text-slate-900">Coach Feedback</h3><div className="flex items-center gap-2"><div className="flex">{[...Array(10)].map((_, i) => (<div key={i} className={`w-2 h-2 rounded-full mr-1 ${i < feedback.score ? 'bg-sky-500' : 'bg-slate-200'}`} />))}</div><span className="text-sm font-bold text-sky-700">{feedback.score}/10</span></div></div></div><div className="space-y-6"><div className="bg-white/60 rounded-xl p-4 border border-sky-100/50"><h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Analysis</h4><p className="text-slate-700 leading-relaxed">{renderSafe(feedback.feedback)}</p></div><div className="bg-white rounded-xl p-4 border border-emerald-100/50 shadow-sm"><h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1"><Check size={12} /> Better Example</h4><p className="text-slate-700 leading-relaxed italic">"{renderSafe(feedback.betterAnswer)}"</p></div></div><div className="mt-8 flex justify-end"><button onClick={() => { if (currentQIndex < questions.length - 1) { setCurrentQIndex(prev => prev + 1); } else { onClose(); } }} className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800 transition-all">Next Question <ArrowRight size={18} /></button></div></div>)}
-          {!feedback && (<div className="grid grid-cols-2 gap-4 w-full max-w-sm mx-auto mt-8"><button onClick={() => markComplete('high')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:scale-105 transition-all gap-2"><ThumbsUp size={24} /><span className="font-bold text-sm">Nailed It (Skip)</span></button><button onClick={() => markComplete('low')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:scale-105 transition-all gap-2"><ThumbsDown size={24} /><span className="font-bold text-sm">Skip & Practice Later</span></button></div>)}
-          {showHint ? (<div className="w-full max-w-3xl bg-white p-8 rounded-2xl text-left border border-sky-100 shadow-xl shadow-sky-100/50 animate-in slide-in-from-bottom-5 ring-4 ring-sky-50"><h4 className="font-bold text-sky-900 mb-4 flex items-center gap-2 text-lg"><Lightbulb size={20} className="text-sky-500" /> Strategic Approach</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm"><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Situation</span><p className="text-slate-700 leading-relaxed">{renderSafe(question.starGuide?.situation)}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Action</span><p className="text-slate-700 leading-relaxed">{renderSafe(question.starGuide?.action)}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Result</span><p className="text-slate-700 leading-relaxed">{renderSafe(question.starGuide?.result)}</p></div></div></div>) : (<button onClick={() => setShowHint(true)} className="text-slate-400 hover:text-sky-600 text-sm font-medium transition-colors flex items-center gap-2 mx-auto block"><Eye size={16} /> Reveal Strategy Hints</button>)}
-        </div>
       </div>
     </div>
   );
@@ -703,7 +757,8 @@ const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-i
 const ProductView = () => {
   const [resume, setResume] = useState('');
   const [jobDesc, setJobDesc] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingPrep, setLoadingPrep] = useState(false);
+  const [loadingResume, setLoadingResume] = useState(false);
   const [result, setResult] = useState(null);
   const [tailoredResume, setTailoredResume] = useState(null);
   const [error, setError] = useState(null);
@@ -711,49 +766,52 @@ const ProductView = () => {
   const [resultTab, setResultTab] = useState('prep'); 
   const resultRef = useRef(null);
 
-  const handleGenerate = async () => {
+  const handleGeneratePrep = async () => {
     if (!resume.trim() || !jobDesc.trim()) return;
-    setLoading(true);
+    setLoadingPrep(true);
     setError(null);
     setResult(null);
-    setTailoredResume(null);
     
-    // Split workflow: Generate Strategy first, then Resume separately to avoid timeouts
-    // This allows us to show partial results if one fails, and avoids single-request limits
-    let prepData = null;
-    let resumeData = null;
+    try {
+      const prepData = await generateInterviewPrep(resume, jobDesc)
+          .catch(err => { console.error("Prep Error:", err); return null; });
+
+      if (prepData) {
+          setResult(prepData);
+          setResultTab('prep');
+          setTimeout(() => { resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+      } else {
+        setError("Failed to generate interview strategy. Please try again.");
+      }
+    } catch (e) { 
+      setError(e.message); 
+    } finally { 
+      setLoadingPrep(false); 
+    }
+  };
+
+  const handleGenerateResume = async () => {
+    if (!resume.trim() || !jobDesc.trim()) return;
+    setLoadingResume(true);
+    setError(null);
+    setTailoredResume(null);
 
     try {
-        // 1. Generate Interview Strategy (Priority)
-        prepData = await generateInterviewPrep(resume, jobDesc)
-            .catch(err => { console.error("Prep Error:", err); return null; });
-
-        if (prepData) {
-            setResult(prepData);
-            setResultTab('prep');
-        }
-    } catch (e) { console.error("Strategy gen failed", e); }
-
-    try {
-        // 2. Generate Resume (Secondary) - Triggered after strategy starts to reduce load
-        // We do this sequentially to prevent rate limiting on the free tier
-        resumeData = await generateTailoredResume(resume, jobDesc)
+      const resumeData = await generateTailoredResume(resume, jobDesc)
              .catch(err => { console.error("Resume Error:", err); return null; });
         
-        if (resumeData) {
-            setTailoredResume(resumeData);
-            // If strategy failed but resume worked, switch tab
-            if (!prepData) setResultTab('resume');
-        }
-    } catch (e) { console.error("Resume gen failed", e); }
-
-    if (!prepData && !resumeData) {
-        setError("Failed to generate content. Please check your inputs and try again.");
-    } else {
-        setTimeout(() => { resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+      if (resumeData) {
+          setTailoredResume(resumeData);
+          setResultTab('resume');
+          setTimeout(() => { resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+      } else {
+        setError("Failed to tailor resume. Please try again.");
+      }
+    } catch (e) { 
+      setError(e.message); 
+    } finally { 
+      setLoadingResume(false); 
     }
-    
-    setLoading(false);
   };
 
   return (
@@ -772,10 +830,33 @@ const ProductView = () => {
         <div className="h-96"><InputCard title="Job Description" icon={Briefcase} placeholder="Paste the job requirements and responsibilities here..." value={jobDesc} onChange={setJobDesc} colorClass="from-sky-300 to-blue-300" /></div>
       </div>
 
-      <div className="flex flex-col items-center gap-6 mb-24">
-        <button onClick={handleGenerate} disabled={loading || !resume || !jobDesc} className={`group relative inline-flex items-center gap-3 px-8 py-4 rounded-full text-lg font-medium transition-all duration-300 ${!resume || !jobDesc ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-slate-800 hover:scale-105 hover:shadow-2xl hover:shadow-sky-200/50'}`}>{loading ? (<><Loader2 className="animate-spin" size={20} /><span>Analyzing & Tailoring...</span></>) : (<><span>Generate Prep Plan</span><ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" /></>)}</button>
-        {error && (<div className="flex items-center gap-2 text-pink-600 bg-pink-50 px-4 py-2 rounded-lg text-sm border border-pink-100"><AlertCircle size={16} />{error}</div>)}
+      <div className="flex flex-col md:flex-row justify-center items-center gap-4 mb-24">
+        <button 
+          onClick={handleGeneratePrep} 
+          disabled={loadingPrep || loadingResume || !resume || !jobDesc} 
+          className={`group relative inline-flex items-center gap-3 px-8 py-4 rounded-full text-lg font-medium transition-all duration-300 ${!resume || !jobDesc ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-slate-800 hover:scale-105 hover:shadow-2xl hover:shadow-sky-200/50'}`}
+        >
+          {loadingPrep ? (
+            <><Loader2 className="animate-spin" size={20} /><span>Generating Plan...</span></>
+          ) : (
+            <><span>Generate Interview Plan</span><ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" /></>
+          )}
+        </button>
+
+        <button 
+          onClick={handleGenerateResume} 
+          disabled={loadingPrep || loadingResume || !resume || !jobDesc} 
+          className={`group relative inline-flex items-center gap-3 px-8 py-4 rounded-full text-lg font-medium transition-all duration-300 border border-slate-200 ${!resume || !jobDesc ? 'bg-white text-slate-300 cursor-not-allowed' : 'bg-white text-slate-900 hover:bg-slate-50 hover:border-slate-300 hover:scale-105 hover:shadow-xl'}`}
+        >
+          {loadingResume ? (
+            <><Loader2 className="animate-spin" size={20} /><span>Tailoring Resume...</span></>
+          ) : (
+            <><span>Tailor Resume Only</span><FileEdit size={20} /></>
+          )}
+        </button>
       </div>
+      
+      {error && (<div className="max-w-md mx-auto mb-12 flex items-center gap-2 text-pink-600 bg-pink-50 px-4 py-3 rounded-lg text-sm border border-pink-100"><AlertCircle size={16} />{error}</div>)}
 
       {(result || tailoredResume) && (
         <div ref={resultRef} className="space-y-8 animate-in fade-in slide-in-from-bottom-10 duration-700 pb-20">
@@ -788,11 +869,13 @@ const ProductView = () => {
             </div>
           </div>
 
-          {resultTab === 'resume' && tailoredResume && (
+          {resultTab === 'resume' && tailoredResume ? (
             <ResumeTailor originalResume={resume} tailoredData={tailoredResume} />
-          )}
+          ) : resultTab === 'resume' && !tailoredResume ? (
+             <div className="text-center p-12 text-slate-400 bg-slate-50 rounded-2xl border border-slate-100">No tailored resume generated yet. Click "Tailor Resume Only" to create one.</div>
+          ) : null}
 
-          {resultTab === 'prep' && result && (
+          {resultTab === 'prep' && result ? (
             <div className="space-y-16">
               <div><div className="flex items-center gap-3 mb-8"><BarChart3 className="text-sky-500" size={28} /><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Role Intelligence</h2></div><div className="grid md:grid-cols-3 gap-8"><div className="md:col-span-1 bg-white p-6 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col items-center"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-6">Candidate Fit Dimension</h3><RadarChart data={result.dimensions} /></div><div className="md:col-span-2 space-y-6"><div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm"><div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Skill Match Network</h3><div className="flex gap-2 text-[10px] font-bold uppercase tracking-wider"><span className="flex items-center gap-1 text-emerald-600"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Match</span><span className="flex items-center gap-1 text-amber-600"><div className="w-2 h-2 rounded-full bg-amber-500"></div> Partial</span></div></div><SkillCloud skills={result.skillAnalysis} /></div></div></div></div>
               <CompanyIntelCard intel={result.companyIntel} />
@@ -800,7 +883,9 @@ const ProductView = () => {
               <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
               <div><div className="flex items-end justify-between mb-8"><div><h2 className="text-3xl font-bold text-slate-900 tracking-tight">Interview Simulation</h2><p className="text-slate-500 mt-2">Questions sorted by probability of being asked.</p></div><button onClick={() => setPracticeMode(true)} className="hidden md:flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-full font-medium hover:bg-slate-800 transition-all hover:scale-105 shadow-xl shadow-slate-900/10"><Play size={16} fill="currentColor" /> Start Practice Session</button></div><div className="space-y-4">{(result.questions || []).map((q, index) => (<QuestionCard key={index} item={q} index={index} />))}</div><button onClick={() => setPracticeMode(true)} className="md:hidden w-full mt-8 flex justify-center items-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-full font-medium shadow-xl"><Play size={16} fill="currentColor" /> Start Practice Session</button></div>
             </div>
-          )}
+          ) : resultTab === 'prep' && !result ? (
+             <div className="text-center p-12 text-slate-400 bg-slate-50 rounded-2xl border border-slate-100">No interview strategy generated yet. Click "Generate Interview Plan" to start.</div>
+          ) : null}
         </div>
       )}
     </div>
