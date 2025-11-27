@@ -5,298 +5,65 @@ import {
   Cpu, Network, Zap, GraduationCap, Play, Timer, 
   Lightbulb, Target, Hash, BarChart3, Activity,
   ThumbsUp, ThumbsDown, Building, Globe, Users,
-  Sliders, Volume2, StopCircle, Settings, MessageSquare,
+  Volume2, StopCircle, MessageSquare,
   FileEdit, Wand2, Download, AlertTriangle, UserCheck
 } from 'lucide-react';
 
-// --- CONFIGURATION ---
-const apiKey = ""; 
-
-// --- Helper: PCM to WAV Converter for TTS ---
-const pcmToWav = (pcmData, sampleRate = 24000) => {
-  const binaryString = atob(pcmData);
-  const buffer = new ArrayBuffer(binaryString.length);
-  const view = new Uint8Array(buffer);
-  for (let i = 0; i < binaryString.length; i++) {
-    view[i] = binaryString.charCodeAt(i);
-  }
-  const pcm16 = new Int16Array(buffer);
-
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const wavDataByteLength = pcm16.length * 2; 
-  const headerSize = 44;
-  const totalLength = headerSize + wavDataByteLength;
-
-  const wavBuffer = new ArrayBuffer(totalLength);
-  const dv = new DataView(wavBuffer);
-
-  let p = 0;
-  const writeString = (s) => {
-    for (let i = 0; i < s.length; i++) dv.setUint8(p++, s.charCodeAt(i));
-  };
-
-  writeString('RIFF');
-  dv.setUint32(p, 36 + wavDataByteLength, true); p += 4;
-  writeString('WAVE');
-  writeString('fmt ');
-  dv.setUint32(p, 16, true); p += 4;
-  dv.setUint16(p, 1, true); p += 2; 
-  dv.setUint16(p, numChannels, true); p += 2;
-  dv.setUint32(p, sampleRate, true); p += 4;
-  dv.setUint32(p, byteRate, true); p += 4;
-  dv.setUint16(p, blockAlign, true); p += 2;
-  dv.setUint16(p, bitsPerSample, true); p += 2;
-  writeString('data');
-  dv.setUint32(p, wavDataByteLength, true); p += 4;
-
-  for (let i = 0; i < pcm16.length; i++) {
-    dv.setInt16(p, pcm16[i], true); p += 2;
-  }
-
-  return new Blob([wavBuffer], { type: 'audio/wav' });
-};
-
-// --- Helper: Robust JSON Parser ---
-const parseAIResponse = (text) => {
-  if (!text) return null;
-  let cleanText = text.replace(/```json/g, '').replace(/```/g, '');
-  const firstOpen = cleanText.indexOf('{');
-  const lastClose = cleanText.lastIndexOf('}');
-  if (firstOpen !== -1 && lastClose !== -1) {
-    cleanText = cleanText.substring(firstOpen, lastClose + 1);
-  }
-  try {
-    return JSON.parse(cleanText);
-  } catch (e) {
-    console.warn("JSON parse failed, attempting sanitize", e);
-    const sanitized = cleanText.replace(/\\(?![/u"bfnrt])/g, "\\\\");
-    return JSON.parse(sanitized);
-  }
-};
-
-// --- CLIENT-SIDE API FUNCTIONS ---
+// --- API Helpers ---
+// These now point to your backend files (api/*.js)
 
 const generateInterviewPrep = async (resume, jobDesc) => {
-  // USING gemini-2.5-flash-preview-09-2025 to resolve 403 errors
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-  
-  const count = 6; 
-  const masterPrompt = `
-    ROLE: You are an elite executive career coach.
-    TASK: Analyze the Resume and Job Description.
-    
-    INSTRUCTION: Generate exactly ${count} diverse questions.
-    
-    CRITICAL OUTPUT RULE: 
-    Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json. 
-    Start with { and end with }.
-
-    JSON STRUCTURE:
-    {
-      "compatibilityScore": number (0-100),
-      "dimensions": [
-        { "label": "Technical", "score": number },
-        { "label": "Experience", "score": number },
-        { "label": "Leadership", "score": number },
-        { "label": "Communication", "score": number },
-        { "label": "Culture Fit", "score": number }
-      ],
-      "roleAnalysis": {
-        "level": "Entry/Mid/Senior/Lead/Executive",
-        "coreFocus": "String",
-        "techStack": ["String"]
-      },
-      "companyIntel": {
-        "name": "String",
-        "missionKeywords": ["String"],
-        "keyChallenges": ["String"],
-        "hiringManagerPainPoints": ["String"],
-        "talkingPoints": ["String"]
-      },
-      "elevatorPitch": {
-        "hook": "String",
-        "body": "String",
-        "close": "String"
-      },
-      "skillAnalysis": [
-        { "skill": "String", "status": "match" | "partial" | "missing" }
-      ],
-      "questions": [
-         { "id": number, "category": "String", "difficulty": "String", "question": "String", "intent": "String", "starGuide": { "situation": "String", "action": "String", "result": "String" } }
-      ]
-    }
-
-    RESUME: ${resume}
-    JOB DESCRIPTION: ${jobDesc}
-  `;
-
   try {
-    const response = await fetch(url, {
+    const response = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: masterPrompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
+      body: JSON.stringify({ resume, jobDesc })
     });
-
-    if (!response.ok) throw new Error(`Gemini API Error: ${response.status}`);
     const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    return parseAIResponse(text);
-  } catch (error) {
-    console.error("Prep Generation Error", error);
-    throw new Error("Failed to generate prep plan");
+    if (!response.ok) throw new Error(data.error || 'Failed to generate prep plan');
+    return data;
+  } catch (err) {
+    console.error("Prep API Error:", err);
+    throw err;
   }
 };
 
 const generateTailoredResume = async (resume, jobDesc) => {
-  // USING gemini-2.5-flash-preview-09-2025 to resolve 403 errors
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-  
-  const prompt = `
-    ROLE: You are a master executive resume writer matching an Oxford/MIT English professor's standard.
-    TASK: Rewrite the provided resume to target the job description.
-    
-    STRICT FORMATTING RULES (To Match Keshav-Resume.pdf style):
-    1. **NO SUMMARY**: Remove professional summary/objective completely.
-    2. **HEADER**: Name (Top), Contact Info (Line 2, separated by pipes '|').
-    3. **ORDER**: Education, Experience, Projects, Skills.
-    4. **FORMAT**: Use simple, clean text structures. No markdown symbols like ## or **.
-    5. **EXPERIENCE**: Format strictly as "Role | Company | Location | Date".
-    6. **EDUCATION**: Format strictly as "Degree | School | Location | GPA/Honors | Date".
-    
-    WRITING TONE:
-    - High burstiness (mix short impact sentences with detailed methodology).
-    - High perplexity (varied vocabulary).
-    - **Tailored to JD**: Swap generic bullets for specific achievements that match the Job Description keywords.
-    - Use strong, non-cliché verbs (e.g., "Engineered", "Optimized", "Deployed" instead of "Helped" or "Worked on").
-    
-    CRITICAL OUTPUT RULE: Return ONLY a valid JSON object.
-    
-    JSON STRUCTURE:
-    {
-      "atsScore": number (0-100),
-      "contact": { "name": "String", "details": "Email | Phone | LinkedIn" },
-      "education": [ 
-        { "line": "Degree | School | Location | GPA | Date", "details": "String (optional)" } 
-      ],
-      "experience": [ 
-        { 
-          "header": "Role | Company | Location | Date", 
-          "bullets": ["String", "String", "String"] 
-        } 
-      ],
-      "projects": [
-        {
-          "header": "Title | Institution/Context | Location | Date",
-          "bullets": ["String", "String"]
-        }
-      ],
-      "skills": [
-        { "category": "String", "items": "String" }
-      ],
-      "resumeTalkingPoints": [
-        { 
-          "role": "Role/Project Name", 
-          "script": "A conversational, 1-2 sentence way to explain this achievement to a human interviewer." 
-        }
-      ]
-    }
-
-    ORIGINAL RESUME: ${resume}
-    TARGET JOB DESCRIPTION: ${jobDesc}
-  `;
-
   try {
-    const response = await fetch(url, {
+    const response = await fetch('/api/tailor', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
+      body: JSON.stringify({ resume, jobDesc })
     });
-
-    if (!response.ok) throw new Error(`Gemini API Error: ${response.status}`);
     const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    return parseAIResponse(text);
-  } catch (error) {
-    console.error("Resume Tailor Error", error);
-    return null; 
+    if (!response.ok) return null; // Fail gracefully
+    return data;
+  } catch (err) {
+    console.error("Tailor API Error:", err);
+    return null;
   }
 };
 
 const getAIFeedback = async (question, answer) => {
-  // USING gemini-2.5-flash-preview-09-2025 to resolve 403 errors
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-  
-  const prompt = `
-    You are an interview coach. Analyze the candidate's answer.
-    OUTPUT FORMAT: JSON Object.
-    {
-      "score": number (1-10),
-      "feedback": "string",
-      "betterAnswer": "string"
-    }
-    QUESTION: "${question}"
-    CANDIDATE ANSWER: "${answer}"
-  `;
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
-    });
-    if (!response.ok) throw new Error('Feedback API Failed');
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    return parseAIResponse(text);
-  } catch (error) {
-    console.error("Feedback Error", error);
-    throw error;
-  }
+  const response = await fetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, answer })
+  });
+  return await response.json();
 };
 
 const getAIVoice = async (text) => {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
-  
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: text }] }],
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Kore" }
-            }
-          }
-        }
-      })
-    });
-
-    if (!response.ok) throw new Error('TTS API Failed');
-    const data = await response.json();
-    const base64Audio = data.candidates[0].content.parts[0].inlineData.data;
-    return pcmToWav(base64Audio);
-  } catch (error) {
-    console.error("Voice Error", error);
-    throw error;
-  }
+  const response = await fetch('/api/speak', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+  if (!response.ok) throw new Error('Voice generation failed');
+  return await response.blob();
 };
 
-// --- COMPONENTS (Defined in dependency order) ---
+// --- Components (Defined Order) ---
 
 const BackgroundGradient = () => (
   <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
@@ -365,6 +132,122 @@ const InputCard = ({ title, icon: Icon, placeholder, value, onChange, colorClass
   </div>
 );
 
+const RadarChart = ({ data }) => {
+  const validData = useMemo(() => {
+    if (!Array.isArray(data)) return [];
+    return data.filter(d => d && typeof d.label === 'string' && typeof d.score === 'number');
+  }, [data]);
+  if (validData.length < 3) return <div className="flex h-64 items-center justify-center text-xs text-slate-400 italic">Not enough data for chart</div>;
+  const size = 300; const center = size / 2; const radius = (size / 2) - 40; const levels = 4;
+  const getCoordinates = (value, index) => { const angle = (Math.PI / 2) + (index * (Math.PI * 2) / validData.length); const r = (value / 100) * radius; return { x: center + r * Math.cos(angle - Math.PI), y: center + r * Math.sin(angle - Math.PI) }; };
+  const webPoints = Array.from({ length: levels }).map((_, levelIndex) => { const levelRadius = (radius / levels) * (levelIndex + 1); return validData.map((_, i) => { const angle = (Math.PI / 2) + (i * (Math.PI * 2) / validData.length) - Math.PI; return `${center + levelRadius * Math.cos(angle)},${center + levelRadius * Math.sin(angle)}`; }).join(' '); });
+  const dataPoints = validData.map((d, i) => { const coords = getCoordinates(d.score, i); return `${coords.x},${coords.y}`; }).join(' ');
+  return (
+    <div className="relative w-full max-w-[300px] aspect-square mx-auto">
+      <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
+        {webPoints.map((points, i) => (<polygon key={i} points={points} fill="none" stroke="#e2e8f0" strokeWidth="1" />))}
+        {validData.map((_, i) => { const end = getCoordinates(100, i); return <line key={i} x1={center} y1={center} x2={end.x} y2={end.y} stroke="#e2e8f0" strokeWidth="1" />; })}
+        <polygon points={dataPoints} fill="rgba(56, 189, 248, 0.2)" stroke="#0ea5e9" strokeWidth="2" className="drop-shadow-sm" />
+        {validData.map((d, i) => { const coords = getCoordinates(d.score, i); return (<g key={i} className="group cursor-pointer"><circle cx={coords.x} cy={coords.y} r="4" fill="#0ea5e9" stroke="white" strokeWidth="2" className="group-hover:r-6 transition-all" /><text x={getCoordinates(120, i).x} y={getCoordinates(120, i).y} textAnchor="middle" dominantBaseline="middle" className="text-[10px] font-bold fill-slate-500 uppercase tracking-wider">{d.label}</text></g>); })}
+      </svg>
+    </div>
+  );
+};
+
+const SkillCloud = ({ skills }) => {
+  if (!Array.isArray(skills) || skills.length === 0) return <div className="text-sm text-slate-400 italic">No specific skills extracted.</div>;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {skills.map((skill, i) => {
+        if (!skill || !skill.skill) return null; 
+        let styles = "bg-slate-100 text-slate-500 border-slate-200"; 
+        if (skill.status === 'match') { styles = "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm shadow-emerald-100"; } else if (skill.status === 'partial') { styles = "bg-amber-50 text-amber-700 border-amber-200"; }
+        return (<div key={i} className={`px-3 py-1.5 rounded-lg border text-sm font-medium flex items-center gap-2 transition-transform hover:scale-105 cursor-default ${styles}`}>{skill.status === 'match' && <Check size={12}/>}{skill.status === 'partial' && <Activity size={12}/>}{String(skill.skill)}</div>);
+      })}
+    </div>
+  );
+};
+
+const CompanyIntelCard = ({ intel }) => {
+  if (!intel) return null;
+  return (
+    <div className="bg-slate-900 text-slate-100 rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-900/20">
+      <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4"><div className="p-2 bg-slate-800 rounded-lg text-sky-400"><Building size={20} /></div><div><h3 className="text-lg font-bold text-white leading-none">{String(intel.name || "Company Intelligence")}</h3><span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Reconnaissance Data</span></div></div>
+      <div className="grid md:grid-cols-2 gap-8">
+        <div className="space-y-6">
+          <div><h4 className="flex items-center gap-2 text-xs font-bold text-red-400 uppercase tracking-wider mb-3"><AlertTriangle size={14} /> Hiring Manager's Pain Points</h4><ul className="space-y-3">{(intel.hiringManagerPainPoints || intel.keyChallenges || []).map((pain, i) => (<li key={i} className="flex items-start gap-2 text-sm text-slate-300"><span className="mt-1.5 w-1 h-1 rounded-full bg-red-500 shrink-0"></span>{typeof pain === 'string' ? pain : JSON.stringify(pain)}</li>))}</ul></div>
+          <div><h4 className="flex items-center gap-2 text-xs font-bold text-pink-400 uppercase tracking-wider mb-3"><Globe size={14} /> Mission Keywords</h4><div className="flex flex-wrap gap-2">{(intel.missionKeywords || []).map((kw, i) => (<span key={i} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">#{typeof kw === 'string' ? kw : ''}</span>))}</div></div>
+        </div>
+        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700"><h4 className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-4"><Users size={14} /> "Insider" Talking Points</h4><div className="space-y-4">{(intel.talkingPoints || []).map((point, i) => (<div key={i} className="flex gap-3"><div className="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold font-mono">{i + 1}</div><p className="text-sm text-slate-300 leading-relaxed">{typeof point === 'string' ? point : JSON.stringify(point)}</p></div>))}</div></div>
+      </div>
+    </div>
+  );
+};
+
+const ElevatorPitch = ({ pitch }) => {
+  if (!pitch) return null;
+  return (
+    <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-8 border border-amber-100 mt-8">
+      <div className="flex items-center gap-3 mb-6"><div className="p-2 bg-white rounded-lg shadow-sm text-amber-600"><UserCheck size={24} /></div><div><h3 className="text-lg font-bold text-amber-900">The "Tell Me About Yourself" Script</h3><p className="text-xs text-amber-800/60 uppercase tracking-wider font-bold">60-Second Elevator Pitch</p></div></div>
+      <div className="space-y-4 text-amber-900/80 leading-relaxed">
+        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Hook:</span> {String(pitch.hook || '')}</p>
+        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Value:</span> {String(pitch.body || '')}</p>
+        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Close:</span> {String(pitch.close || '')}</p>
+      </div>
+    </div>
+  );
+};
+
+const ResumeTailor = ({ originalResume, tailoredData }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    const text = generateResumeText(tailoredData);
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(err => { fallbackCopyTextToClipboard(text); });
+    } else { fallbackCopyTextToClipboard(text); }
+  };
+  const fallbackCopyTextToClipboard = (text) => {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.top = "0"; textArea.style.left = "0"; textArea.style.position = "fixed";
+      document.body.appendChild(textArea);
+      textArea.focus(); textArea.select();
+      try { const successful = document.execCommand('copy'); if (successful) { setCopied(true); setTimeout(() => setCopied(false), 2000); } } catch (err) {}
+      document.body.removeChild(textArea);
+  };
+  const generateResumeText = (data) => {
+    if (!data) return '';
+    let text = `${data.contact?.name || ''}\n${data.contact?.details || ''}\n\n`;
+    text += `EDUCATION\n`; (data.education || []).forEach(edu => { text += `${edu.line}\n`; if(edu.details) text += `${edu.details}\n`; text += `\n`; });
+    text += `EXPERIENCE\n`; (data.experience || []).forEach(exp => { text += `${exp.header}\n`; (exp.bullets || []).forEach(bull => text += `• ${bull}\n`); text += `\n`; });
+    text += `PROJECTS\n`; (data.projects || []).forEach(proj => { text += `${proj.header}\n`; (proj.bullets || []).forEach(bull => text += `• ${bull}\n`); text += `\n`; });
+    text += `SKILLS\n`; (data.skills || []).forEach(skill => { text += `${skill.category}: ${skill.items}\n`; });
+    return text;
+  };
+  const handleDownload = () => { const text = generateResumeText(tailoredData); const element = document.createElement("a"); const file = new Blob([text], {type: 'text/plain'}); element.href = URL.createObjectURL(file); element.download = "Tailored_Resume.txt"; document.body.appendChild(element); element.click(); };
+  if (!tailoredData) return <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-xl border border-slate-100 mt-8">Resume tailoring was skipped or failed.</div>;
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="bg-slate-900 text-white rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl shadow-slate-900/20">
+        <div className="flex items-center gap-6"><div className="relative w-24 h-24 flex items-center justify-center"><svg className="transform -rotate-90 w-full h-full"><circle cx="48" cy="48" r="40" stroke="rgba(255,255,255,0.1)" strokeWidth="8" fill="transparent" /><circle cx="48" cy="48" r="40" stroke="#4ade80" strokeWidth="8" fill="transparent" strokeDasharray={251} strokeDashoffset={251 - ((tailoredData.atsScore || 85) / 100) * 251} strokeLinecap="round" className="transition-all duration-1000 ease-out" /></svg><div className="absolute flex flex-col items-center"><span className="text-2xl font-bold">{tailoredData.atsScore || 85}%</span><span className="text-[10px] uppercase font-bold tracking-wider opacity-60">ATS Score</span></div></div><div><h2 className="text-2xl font-bold mb-1">Resume Optimized</h2><p className="text-slate-400 text-sm max-w-md">Your resume has been rewritten with high-perplexity phrasing.</p></div></div>
+        <div className="flex gap-3"><button onClick={handleCopy} className="flex items-center gap-2 px-5 py-3 bg-white/10 text-white rounded-full font-medium hover:bg-white/20 transition-all active:scale-95 border border-white/10">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? 'Copied' : 'Copy Text'}</button><button onClick={handleDownload} className="flex items-center gap-2 px-5 py-3 bg-white text-slate-900 rounded-full font-medium hover:bg-slate-100 transition-all active:scale-95"><Download size={18} /> Download</button></div>
+      </div>
+      {/* Resume View */}
+      <div className="bg-white rounded-sm shadow-lg border border-slate-200 overflow-hidden max-w-[850px] mx-auto text-slate-900 font-sans">
+         <div className="p-12 space-y-6">
+            <div className="text-center"><h1 className="text-3xl font-bold mb-2">{tailoredData.contact?.name}</h1><p className="text-sm text-slate-600">{tailoredData.contact?.details}</p></div>
+            <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Education</h2>{tailoredData.education?.map((edu, i) => (<div key={i} className="mb-2 text-sm"><div className="font-medium text-slate-900">{edu.line}</div>{edu.details && <div className="text-slate-700">{edu.details}</div>}</div>))}</div>
+            <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Experience</h2>{tailoredData.experience?.map((exp, i) => (<div key={i} className="mb-4"><div className="font-bold text-sm text-slate-900 mb-1">{exp.header}</div><ul className="list-disc list-outside ml-4 space-y-1">{exp.bullets?.map((b, j) => (<li key={j} className="text-sm text-slate-800 leading-relaxed pl-1">{b}</li>))}</ul></div>))}</div>
+             {tailoredData.projects && tailoredData.projects.length > 0 && (<div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Projects</h2>{tailoredData.projects.map((proj, i) => (<div key={i} className="mb-3"><div className="font-bold text-sm text-slate-900 mb-1">{proj.header}</div><ul className="list-disc list-outside ml-4 space-y-1">{proj.bullets?.map((b, j) => (<li key={j} className="text-sm text-slate-800 leading-relaxed pl-1">{b}</li>))}</ul></div>))}</div>)}
+             <div><h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Skills</h2><div className="space-y-1">{tailoredData.skills?.map((skill, i) => (<div key={i} className="text-sm text-slate-800"><span className="font-bold">{skill.category}:</span> {skill.items}</div>))}</div></div>
+         </div>
+      </div>
+      {/* Talking Points */}
+      {tailoredData.resumeTalkingPoints && tailoredData.resumeTalkingPoints.length > 0 && (<div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100"><h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2"><MessageSquare size={20}/> Interview Talking Points</h3><div className="grid md:grid-cols-2 gap-4">{tailoredData.resumeTalkingPoints.map((tp, idx) => (<div key={idx} className="bg-white p-4 rounded-xl shadow-sm"><h4 className="font-bold text-slate-800 text-sm mb-2">{tp.role}</h4><p className="text-sm text-slate-600 leading-relaxed">"{tp.script}"</p></div>))}</div></div>)}
+    </div>
+  );
+};
+
 const QuestionCard = ({ item, index }) => {
   const [isOpen, setIsOpen] = useState(false);
   if (!item) return null;
@@ -393,372 +276,91 @@ const QuestionCard = ({ item, index }) => {
   );
 };
 
-const VibeEqualizer = ({ vibe }) => {
-  const data = vibe || { scope: 50, social: 50, structure: 50, techNature: 50 };
-  const SpectrumRow = ({ labelLeft, labelRight, value, colorClass }) => (
-    <div className="mb-5 last:mb-0">
-      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-        <span className={value < 40 ? "text-slate-800" : ""}>{labelLeft}</span>
-        <span className={value > 60 ? "text-slate-800" : ""}>{labelRight}</span>
-      </div>
-      <div className="h-3 bg-slate-100 rounded-full relative overflow-hidden">
-        <div className={`absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r ${colorClass}`} style={{ width: `${value || 50}%` }} />
-        <div className="absolute top-0 h-full w-1 bg-white shadow-md z-10 transition-all duration-1000 ease-out" style={{ left: `${value || 50}%`, transform: 'translateX(-50%)' }} />
-      </div>
-    </div>
-  );
-  return (
-    <div className="w-full">
-      <div className="flex items-center gap-2 mb-6 border-b border-slate-50 pb-2">
-         <Sliders size={16} className="text-slate-400"/>
-         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Role DNA Profile</span>
-      </div>
-      <SpectrumRow labelLeft="Execution" labelRight="Strategy" value={data.scope} colorClass="from-emerald-300 to-emerald-500"/>
-      <SpectrumRow labelLeft="Independent" labelRight="Collaborative" value={data.social} colorClass="from-blue-300 to-blue-500"/>
-      <SpectrumRow labelLeft="Structured" labelRight="Ambiguous" value={data.structure} colorClass="from-purple-300 to-purple-500"/>
-      <SpectrumRow labelLeft="Generalist" labelRight="Specialist" value={data.techNature} colorClass="from-pink-300 to-pink-500"/>
-    </div>
-  );
-};
+// --- Practice Mode Component ---
+const PracticeSession = ({ questions, onClose }) => {
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [timer, setTimer] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [userAnswer, setUserAnswer] = useState('');
+  const [feedback, setFeedback] = useState(null);
+  const [loadingFeedback, setLoadingFeedback] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const audioRef = useRef(null);
+  const audioCache = useRef({});
+  const [showHint, setShowHint] = useState(false);
+  const [completed, setCompleted] = useState(new Set());
 
-const RadarChart = ({ data }) => {
-  const validData = useMemo(() => {
-    if (!Array.isArray(data)) return [];
-    return data.filter(d => d && typeof d.label === 'string' && typeof d.score === 'number');
-  }, [data]);
+  const question = (questions && questions.length > 0) ? questions[currentQIndex] : null;
 
-  if (validData.length < 3) return <div className="flex h-64 items-center justify-center text-xs text-slate-400 italic">Not enough data for chart</div>;
-
-  const size = 300;
-  const center = size / 2;
-  const radius = (size / 2) - 40;
-  const levels = 4;
-  
-  const getCoordinates = (value, index) => {
-    const angleStep = (Math.PI * 2) / validData.length;
-    const angle = (Math.PI / 2) + (index * angleStep);
-    const r = (value / 100) * radius;
-    const rotatedAngle = angle - Math.PI; 
-    const x = center + r * Math.cos(rotatedAngle);
-    const y = center + r * Math.sin(rotatedAngle);
-    return { x, y };
-  };
-
-  const webPoints = Array.from({ length: levels }).map((_, levelIndex) => {
-    const levelRadius = (radius / levels) * (levelIndex + 1);
-    return validData.map((_, i) => {
-      const angleStep = (Math.PI * 2) / validData.length;
-      const angle = (Math.PI / 2) + (i * angleStep) - Math.PI;
-      const x = center + levelRadius * Math.cos(angle);
-      const y = center + levelRadius * Math.sin(angle);
-      return `${x},${y}`;
-    }).join(' ');
-  });
-
-  const dataPoints = validData.map((d, i) => {
-    const coords = getCoordinates(d.score, i);
-    return `${coords.x},${coords.y}`;
-  }).join(' ');
-
-  return (
-    <div className="relative w-full max-w-[300px] aspect-square mx-auto">
-      <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
-        {webPoints.map((points, i) => (<polygon key={i} points={points} fill="none" stroke="#e2e8f0" strokeWidth="1" />))}
-        {validData.map((_, i) => {
-          const end = getCoordinates(100, i);
-          return <line key={i} x1={center} y1={center} x2={end.x} y2={end.y} stroke="#e2e8f0" strokeWidth="1" />;
-        })}
-        <polygon points={dataPoints} fill="rgba(56, 189, 248, 0.2)" stroke="#0ea5e9" strokeWidth="2" className="drop-shadow-sm" />
-        {validData.map((d, i) => {
-          const coords = getCoordinates(d.score, i);
-          return (
-            <g key={i} className="group cursor-pointer">
-              <circle cx={coords.x} cy={coords.y} r="4" fill="#0ea5e9" stroke="white" strokeWidth="2" className="group-hover:r-6 transition-all" />
-              <text x={getCoordinates(120, i).x} y={getCoordinates(120, i).y} textAnchor="middle" dominantBaseline="middle" className="text-[10px] font-bold fill-slate-500 uppercase tracking-wider">{d.label}</text>
-               <text x={coords.x} y={coords.y - 10} textAnchor="middle" className="text-[10px] font-bold fill-slate-900 opacity-0 group-hover:opacity-100 transition-opacity bg-white">{d.score}%</text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-};
-
-const SkillCloud = ({ skills }) => {
-  if (!Array.isArray(skills) || skills.length === 0) return <div className="text-sm text-slate-400 italic">No specific skills extracted.</div>;
-  return (
-    <div className="flex flex-wrap gap-2">
-      {skills.map((skill, i) => {
-        if (!skill || !skill.skill) return null; 
-        let styles = "bg-slate-100 text-slate-500 border-slate-200"; 
-        let icon = null;
-        if (skill.status === 'match') {
-          styles = "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm shadow-emerald-100";
-          icon = <Check size={12} className="text-emerald-500" />;
-        } else if (skill.status === 'partial') {
-          styles = "bg-amber-50 text-amber-700 border-amber-200";
-          icon = <Activity size={12} className="text-amber-500" />;
-        }
-        return (
-          <div key={i} className={`px-3 py-1.5 rounded-lg border text-sm font-medium flex items-center gap-2 transition-transform hover:scale-105 cursor-default ${styles}`}>
-            {icon}
-            {String(skill.skill)}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-const CompanyIntelCard = ({ intel }) => {
-  if (!intel) return null;
-  return (
-    <div className="bg-slate-900 text-slate-100 rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-900/20">
-      <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
-        <div className="p-2 bg-slate-800 rounded-lg text-sky-400"><Building size={20} /></div>
-        <div><h3 className="text-lg font-bold text-white leading-none">{String(intel.name || "Company Intelligence")}</h3><span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Reconnaissance Data</span></div>
-      </div>
-      <div className="grid md:grid-cols-2 gap-8">
-        <div className="space-y-6">
-          <div>
-            <h4 className="flex items-center gap-2 text-xs font-bold text-red-400 uppercase tracking-wider mb-3"><AlertTriangle size={14} /> Hiring Manager's Pain Points</h4>
-            <ul className="space-y-3">
-              {(intel.hiringManagerPainPoints || intel.keyChallenges || []).map((pain, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-slate-300"><span className="mt-1.5 w-1 h-1 rounded-full bg-red-500 shrink-0"></span>{typeof pain === 'string' ? pain : JSON.stringify(pain)}</li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h4 className="flex items-center gap-2 text-xs font-bold text-pink-400 uppercase tracking-wider mb-3"><Globe size={14} /> Mission Keywords</h4>
-            <div className="flex flex-wrap gap-2">
-              {(intel.missionKeywords || []).map((kw, i) => (
-                <span key={i} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300">#{typeof kw === 'string' ? kw : ''}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700">
-          <h4 className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-4"><Users size={14} /> "Insider" Talking Points</h4>
-          <div className="space-y-4">
-            {(intel.talkingPoints || []).map((point, i) => (
-              <div key={i} className="flex gap-3"><div className="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold font-mono">{i + 1}</div><p className="text-sm text-slate-300 leading-relaxed">{typeof point === 'string' ? point : JSON.stringify(point)}</p></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const ElevatorPitch = ({ pitch }) => {
-  if (!pitch) return null;
-  return (
-    <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-8 border border-amber-100 mt-8">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-white rounded-lg shadow-sm text-amber-600"><UserCheck size={24} /></div>
-        <div>
-          <h3 className="text-lg font-bold text-amber-900">The "Tell Me About Yourself" Script</h3>
-          <p className="text-xs text-amber-800/60 uppercase tracking-wider font-bold">60-Second Elevator Pitch</p>
-        </div>
-      </div>
-      <div className="space-y-4 text-amber-900/80 leading-relaxed">
-        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Hook:</span> {String(pitch.hook || '')}</p>
-        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Value:</span> {String(pitch.body || '')}</p>
-        <p><span className="font-bold text-amber-700 uppercase text-xs tracking-wider mr-2">The Close:</span> {String(pitch.close || '')}</p>
-      </div>
-      <div className="mt-6 bg-white/60 p-4 rounded-xl border border-amber-100 text-sm italic text-amber-800">
-        "Read this aloud 5 times. Memorize the flow, not just the words."
-      </div>
-    </div>
-  );
-};
-
-const ResumeTailor = ({ originalResume, tailoredData }) => {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    const text = generateResumeText(tailoredData);
-    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
-        navigator.clipboard.writeText(text)
-        .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
-        .catch(err => { fallbackCopyTextToClipboard(text); });
-    } else {
-        fallbackCopyTextToClipboard(text);
+  useEffect(() => {
+    let interval = null;
+    if (isActive) {
+      interval = setInterval(() => { setTimer(seconds => seconds + 1); }, 1000);
+    } else if (!isActive && timer !== 0) {
+      clearInterval(interval);
     }
-  };
-  
-  const fallbackCopyTextToClipboard = (text) => {
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      textArea.style.top = "0"; textArea.style.left = "0"; textArea.style.position = "fixed";
-      document.body.appendChild(textArea);
-      textArea.focus(); textArea.select();
-      try {
-          const successful = document.execCommand('copy');
-          if (successful) { setCopied(true); setTimeout(() => setCopied(false), 2000); }
-      } catch (err) {}
-      document.body.removeChild(textArea);
-  };
+    return () => clearInterval(interval);
+  }, [isActive, timer]);
 
-  const generateResumeText = (data) => {
-    if (!data) return '';
-    // Simple Markdown conversion for copy/download
-    let text = `${data.contact?.name || ''}\n${data.contact?.details || ''}\n\n`;
-    
-    text += `EDUCATION\n`;
-    (data.education || []).forEach(edu => {
-        text += `${edu.line}\n`;
-        if(edu.details) text += `${edu.details}\n`;
-        text += `\n`;
-    });
-    
-    text += `EXPERIENCE\n`;
-    (data.experience || []).forEach(exp => {
-        text += `${exp.header}\n`;
-        (exp.bullets || []).forEach(bull => text += `• ${bull}\n`);
-        text += `\n`;
-    });
-    
-    text += `PROJECTS\n`;
-    (data.projects || []).forEach(proj => {
-        text += `${proj.header}\n`;
-        (proj.bullets || []).forEach(bull => text += `• ${bull}\n`);
-        text += `\n`;
-    });
-    
-    text += `SKILLS\n`;
-    (data.skills || []).forEach(skill => {
-      text += `${skill.category}: ${skill.items}\n`;
-    });
+  useEffect(() => {
+    if (!question) return;
+    setAudioUrl(null); 
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    setIsPlaying(false);
+    const loadVoice = async () => {
+      if (audioCache.current[currentQIndex]) { setAudioUrl(audioCache.current[currentQIndex]); return; }
+      setVoiceLoading(true);
+      try { const blob = await getAIVoice(question.question); const url = URL.createObjectURL(blob); audioCache.current[currentQIndex] = url; setAudioUrl(url); } catch (e) { console.error("Voice failed", e); } finally { setVoiceLoading(false); }
+    };
+    loadVoice();
+    setUserAnswer(''); setFeedback(null); setTimer(0); setIsActive(false); setShowHint(false);
+  }, [currentQIndex, question]);
 
-    return text;
-  };
+  useEffect(() => {
+    if (!questions) return;
+    const nextIndex = currentQIndex + 1;
+    if (nextIndex < questions.length && !audioCache.current[nextIndex]) { getAIVoice(questions[nextIndex].question).then(blob => { const url = URL.createObjectURL(blob); audioCache.current[nextIndex] = url; }).catch(() => {}); }
+  }, [currentQIndex, questions]);
 
-  const handleDownload = () => {
-    const text = generateResumeText(tailoredData);
-    const element = document.createElement("a");
-    const file = new Blob([text], {type: 'text/plain'});
-    element.href = URL.createObjectURL(file);
-    element.download = "Tailored_Resume_PrepFlow.txt"; 
-    document.body.appendChild(element);
-    element.click();
-  };
+  const handlePlayAudio = () => { if (audioRef.current) { if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); } else { audioRef.current.play(); setIsPlaying(true); } } };
+  const handleGetFeedback = async () => { if (!userAnswer.trim() || !question) return; setLoadingFeedback(true); setIsActive(false); try { const data = await getAIFeedback(question.question, userAnswer); setFeedback(data); } catch (err) { console.error(err); } finally { setLoadingFeedback(false); } };
+  const formatTime = (time) => { const minutes = Math.floor(time / 60); const seconds = time % 60; return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`; };
+  const markComplete = (score) => { const newCompleted = new Set(completed); newCompleted.add(currentQIndex); setCompleted(newCompleted); if (questions && currentQIndex < questions.length - 1) { setTimeout(() => { setCurrentQIndex(prev => prev + 1); }, 500); } };
 
-  if (!tailoredData) return <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-xl border border-slate-100 mt-8">Resume tailoring was skipped or failed. Focusing on interview prep.</div>;
+  if (!question) return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      
-      <div className="bg-slate-900 text-white rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl shadow-slate-900/20">
-        <div className="flex items-center gap-6">
-          <div className="relative w-24 h-24 flex items-center justify-center">
-            <svg className="transform -rotate-90 w-full h-full">
-              <circle cx="48" cy="48" r="40" stroke="rgba(255,255,255,0.1)" strokeWidth="8" fill="transparent" />
-              <circle cx="48" cy="48" r="40" stroke="#4ade80" strokeWidth="8" fill="transparent" strokeDasharray={251} strokeDashoffset={251 - ((tailoredData.atsScore || 85) / 100) * 251} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
-            </svg>
-            <div className="absolute flex flex-col items-center">
-              <span className="text-2xl font-bold">{tailoredData.atsScore || 85}%</span>
-              <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">ATS Score</span>
-            </div>
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold mb-1">Resume Optimized</h2>
-            <p className="text-slate-400 text-sm max-w-md">Your resume has been rewritten with high-perplexity phrasing to bypass AI detectors while targeting specific ATS keywords.</p>
-          </div>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={handleCopy} className="flex items-center gap-2 px-5 py-3 bg-white/10 text-white rounded-full font-medium hover:bg-white/20 transition-all active:scale-95 border border-white/10">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? 'Copied' : 'Copy Text'}</button>
-          <button onClick={handleDownload} className="flex items-center gap-2 px-5 py-3 bg-white text-slate-900 rounded-full font-medium hover:bg-slate-100 transition-all active:scale-95"><Download size={18} /> Download</button>
-        </div>
+    <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in duration-300">
+      <div className="px-6 h-20 flex items-center justify-between border-b border-slate-100 bg-white">
+        <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold shadow-lg shadow-slate-900/20">{currentQIndex + 1}</div><span className="text-sm font-medium text-slate-500">Question {currentQIndex + 1} of {questions.length}</span></div>
+        <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-900"><X size={24} /></button>
       </div>
-
-      {/* NEW: Resume Talking Points */}
-      {tailoredData.resumeTalkingPoints && tailoredData.resumeTalkingPoints.length > 0 && (
-        <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
-          <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2"><MessageSquare size={20}/> How to Talk About Your Experience</h3>
-          <div className="grid md:grid-cols-2 gap-4">
-            {tailoredData.resumeTalkingPoints.map((tp, idx) => (
-              <div key={idx} className="bg-white p-4 rounded-xl shadow-sm">
-                <h4 className="font-bold text-slate-800 text-sm mb-2">{tp.role}</h4>
-                <p className="text-sm text-slate-600 leading-relaxed">"{tp.script}"</p>
-              </div>
-            ))}
+      <div className="flex-1 overflow-y-auto p-6 pb-24">
+        <div className="max-w-3xl mx-auto space-y-8">
+          <div className="text-center space-y-6">
+            <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold uppercase tracking-wider">{question.category} • {question.difficulty}</span>
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 leading-tight relative group">{question.question}</h2>
+            <div className="flex justify-center">
+              {audioUrl && (<audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} className="hidden" />)}
+              <button onClick={handlePlayAudio} disabled={!audioUrl && !voiceLoading} className={`flex items-center gap-2 px-5 py-2 rounded-full transition-all ${isPlaying ? 'bg-sky-100 text-sky-700 ring-2 ring-sky-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{voiceLoading ? (<Loader2 size={20} className="animate-spin text-slate-400" />) : isPlaying ? (<StopCircle size={20} className="animate-pulse"/>) : (<Volume2 size={20} />)}<span className="text-sm font-medium">{voiceLoading ? 'Loading Voice...' : isPlaying ? 'Stop' : 'Listen to Question'}</span></button>
+            </div>
           </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm relative">
+            <div className="flex items-center justify-between mb-4"><div className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm font-mono font-medium ${isActive ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}><Timer size={16} />{formatTime(timer)}</div><button onClick={() => setIsActive(!isActive)} className="text-sm font-medium text-sky-600 hover:underline">{isActive ? 'Pause Timer' : 'Start Timer'}</button></div>
+            <textarea value={userAnswer} onChange={(e) => { setUserAnswer(e.target.value); if (!isActive && !feedback) setIsActive(true); }} placeholder="Type your answer here..." className="w-full h-40 p-4 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-sky-500 text-slate-700 resize-none" disabled={!!feedback} />
+            {!feedback && (<div className="mt-4 flex justify-end"><button onClick={handleGetFeedback} disabled={loadingFeedback || !userAnswer.trim()} className={`flex items-center gap-2 px-6 py-3 rounded-full text-white font-medium transition-all ${loadingFeedback || !userAnswer.trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800 hover:scale-105'}`}>{loadingFeedback ? <Loader2 className="animate-spin" size={18} /> : <MessageSquare size={18} />} Get AI Feedback</button></div>)}
+          </div>
+          {feedback && (<div className="bg-gradient-to-br from-sky-50 to-indigo-50 rounded-2xl p-8 border border-sky-100 animate-in slide-in-from-bottom-5"><div className="flex items-center gap-3 mb-6"><div className="p-2 bg-white rounded-lg shadow-sm text-sky-600"><Sparkles size={24} /></div><div><h3 className="text-lg font-bold text-slate-900">Coach Feedback</h3><div className="flex items-center gap-2"><div className="flex">{[...Array(10)].map((_, i) => (<div key={i} className={`w-2 h-2 rounded-full mr-1 ${i < feedback.score ? 'bg-sky-500' : 'bg-slate-200'}`} />))}</div><span className="text-sm font-bold text-sky-700">{feedback.score}/10</span></div></div></div><div className="space-y-6"><div className="bg-white/60 rounded-xl p-4 border border-sky-100/50"><h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Analysis</h4><p className="text-slate-700 leading-relaxed">{feedback.feedback}</p></div><div className="bg-white rounded-xl p-4 border border-emerald-100/50 shadow-sm"><h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1"><Check size={12} /> Better Example</h4><p className="text-slate-700 leading-relaxed italic">"{feedback.betterAnswer}"</p></div></div><div className="mt-8 flex justify-end"><button onClick={() => { if (currentQIndex < questions.length - 1) { setCurrentQIndex(prev => prev + 1); } else { onClose(); } }} className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800 transition-all">Next Question <ArrowRight size={18} /></button></div></div>)}
+          {!feedback && (<div className="grid grid-cols-2 gap-4 w-full max-w-sm mx-auto mt-8"><button onClick={() => markComplete('high')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:scale-105 transition-all gap-2"><ThumbsUp size={24} /><span className="font-bold text-sm">Nailed It (Skip)</span></button><button onClick={() => markComplete('low')} className="flex flex-col items-center justify-center p-4 rounded-xl border border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:scale-105 transition-all gap-2"><ThumbsDown size={24} /><span className="font-bold text-sm">Skip & Practice Later</span></button></div>)}
+          {showHint ? (<div className="w-full max-w-3xl bg-white p-8 rounded-2xl text-left border border-sky-100 shadow-xl shadow-sky-100/50 animate-in slide-in-from-bottom-5 ring-4 ring-sky-50"><h4 className="font-bold text-sky-900 mb-4 flex items-center gap-2 text-lg"><Lightbulb size={20} className="text-sky-500" /> Strategic Approach</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm"><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Situation</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.situation}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Action</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.action}</p></div><div className="bg-sky-50 p-4 rounded-xl"><span className="font-bold block text-sky-700 mb-1 uppercase text-xs tracking-wider">Result</span><p className="text-slate-700 leading-relaxed">{question.starGuide?.result}</p></div></div></div>) : (<button onClick={() => setShowHint(true)} className="text-slate-400 hover:text-sky-600 text-sm font-medium transition-colors flex items-center gap-2 mx-auto block"><Eye size={16} /> Reveal Strategy Hints</button>)}
         </div>
-      )}
-
-      {/* Styled Document Preview - Matches PDF Style */}
-      <div className="bg-white rounded-sm shadow-lg border border-slate-200 overflow-hidden max-w-[850px] mx-auto text-slate-900 font-sans">
-         <div className="p-12 space-y-6">
-            
-            {/* Header */}
-            <div className="text-center">
-               <h1 className="text-3xl font-bold mb-2">{tailoredData.contact?.name || 'Candidate Name'}</h1>
-               <p className="text-sm text-slate-600">{tailoredData.contact?.details || 'Email | Phone | LinkedIn'}</p>
-            </div>
-
-            {/* Education */}
-            <div>
-               <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Education</h2>
-               {tailoredData.education?.map((edu, i) => (
-                  <div key={i} className="mb-2 text-sm">
-                     <div className="font-medium text-slate-900">{edu.line}</div>
-                     {edu.details && <div className="text-slate-700">{edu.details}</div>}
-                  </div>
-               ))}
-            </div>
-
-            {/* Experience */}
-            <div>
-               <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Experience</h2>
-               {tailoredData.experience?.map((exp, i) => (
-                  <div key={i} className="mb-4">
-                     <div className="font-bold text-sm text-slate-900 mb-1">{exp.header}</div>
-                     <ul className="list-disc list-outside ml-4 space-y-1">
-                        {exp.bullets?.map((b, j) => (
-                           <li key={j} className="text-sm text-slate-800 leading-relaxed pl-1">{b}</li>
-                        ))}
-                     </ul>
-                  </div>
-               ))}
-            </div>
-
-             {/* Projects */}
-             {tailoredData.projects && tailoredData.projects.length > 0 && (
-                <div>
-                  <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Projects</h2>
-                  {tailoredData.projects.map((proj, i) => (
-                      <div key={i} className="mb-3">
-                        <div className="font-bold text-sm text-slate-900 mb-1">{proj.header}</div>
-                        <ul className="list-disc list-outside ml-4 space-y-1">
-                            {proj.bullets?.map((b, j) => (
-                              <li key={j} className="text-sm text-slate-800 leading-relaxed pl-1">{b}</li>
-                            ))}
-                        </ul>
-                      </div>
-                  ))}
-                </div>
-             )}
-
-             {/* Skills */}
-             <div>
-                <h2 className="text-base font-bold uppercase tracking-wide border-b border-slate-300 mb-3 pb-1 text-slate-800">Skills</h2>
-                <div className="space-y-1">
-                  {tailoredData.skills?.map((skill, i) => (
-                     <div key={i} className="text-sm text-slate-800">
-                        <span className="font-bold">{skill.category}:</span> {skill.items}
-                     </div>
-                  ))}
-                </div>
-             </div>
-
-         </div>
       </div>
     </div>
   );
 };
 
-// --- RESEARCH AND SAFETY VIEW ---
 const ResearchView = () => (<div className="max-w-4xl mx-auto py-12 px-6 animate-in fade-in slide-in-from-bottom-4 duration-500"><div className="text-center mb-16"><div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-bold uppercase tracking-wider mb-4"><Cpu size={14} /> Algorithm Beta 2.5</div><h2 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">How we analyze fit.</h2><p className="text-lg text-slate-600 max-w-2xl mx-auto">Our model decomposes your resume into semantic vectors to understand not just keywords, but underlying capabilities.</p></div><div className="grid md:grid-cols-3 gap-8 mb-20 relative"><div className="hidden md:block absolute top-12 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-slate-200 to-transparent -z-10"></div>{[{ icon: FileText, title: "Tokenization", desc: "Parsing unstructured text from resumes and JDs into structured skill ontologies.", color: "text-blue-500", bg: "bg-blue-50" }, { icon: Network, title: "Semantic Mapping", desc: "Mapping your experience against a high-dimensional vector space of job requirements.", color: "text-purple-500", bg: "bg-purple-50" }, { icon: Zap, title: "Gap Analysis", desc: "Identifying the precise distance between candidate capabilities and role demands.", color: "text-pink-500", bg: "bg-pink-50" }].map((item, i) => (<div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow relative"><div className={`w-12 h-12 ${item.bg} ${item.color} rounded-xl flex items-center justify-center mb-4 mx-auto md:mx-0 shadow-inner`}><item.icon size={24} /></div><h3 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h3><p className="text-slate-500 text-sm leading-relaxed">{item.desc}</p></div>))}</div></div>);
 const SafetyView = () => (<div className="max-w-3xl mx-auto py-12 px-6 animate-in fade-in slide-in-from-bottom-4 duration-500"><div className="text-center mb-16"><div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-4"><Shield size={14} /> Enterprise Grade</div><h2 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight mb-6">Your data is yours.</h2><p className="text-lg text-slate-600">We believe interview preparation shouldn't come at the cost of privacy.</p></div><div className="space-y-6">{[{ icon: Lock, title: "Zero Retention Policy", desc: "Your resume and job descriptions are processed in memory and immediately discarded." }, { icon: Eye, title: "No Model Training", desc: "We do not use your inputs to train our public models. Your career history remains private to you." }, { icon: Server, title: "Encrypted Transport", desc: "All data sent between your browser and our analysis engine is encrypted via TLS 1.3 standards." }].map((item, i) => (<div key={i} className="flex gap-6 p-6 rounded-2xl bg-white border border-slate-100 hover:border-slate-200 transition-colors"><div className="flex-shrink-0 w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-900"><item.icon size={24} strokeWidth={1.5} /></div><div><h3 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h3><p className="text-slate-500 leading-relaxed">{item.desc}</p></div></div>))}</div></div>);
 
