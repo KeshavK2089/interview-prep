@@ -10,8 +10,8 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Server Config Error: GEMINI_API_KEY is missing.' });
   }
 
-  // STABLE MODEL URL
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${apiKey}`;
+  // FIXED: Using the universal alias 'gemini-1.5-flash'
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const count = numQuestions || 7; 
 
   const systemPrompt = `You are an elite executive career coach. 
@@ -76,13 +76,13 @@ export default async function handler(request, response) {
     });
 
     if (!geminiResponse.ok) {
+      console.error(`Gemini API Failed. Status: ${geminiResponse.status}`);
       throw new Error(`Gemini API Error: ${geminiResponse.statusText}`);
     }
     
     const data = await geminiResponse.json();
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
-    // Aggressive JSON Cleaning
     if (textResponse) {
       textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '');
       const firstOpen = textResponse.indexOf('{');
